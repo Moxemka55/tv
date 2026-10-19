@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Launcher config for Xiaomi Mi TV "rango". Copy over launcher/res/values/config.xml,
+  then: STOCK_LAUNCHER=com.google.android.tvlauncher launcher/build-and-install.sh
+-->
+<resources>
+    <!-- Dock apps, left to right. Apps that aren't installed are skipped. -->
+    <string-array name="dock_apps">
+        <item>com.google.android.youtube.tv</item>
+        <item>com.amazon.amazonvideo.livingroom</item>
+        <item>in.startv.hotstar</item>
+        <item>com.netflix.ninja</item>
+    </string-array>
+
+    <!-- Never shown as tiles. -->
+    <string-array name="hidden_apps">
+        <item>com.android.tv</item>
+        <item>com.droidlogic.droidlivetvsettings</item>
+    </string-array>
+
+    <!-- Live TV / input app on this Amlogic (droidlogic) set. Not fully verified. -->
+    <string name="live_tv_package" translatable="false">com.android.tv</string>
+    <string name="input_picker_package" translatable="false">com.android.tv</string>
+
+    <integer name="columns">5</integer>
+</resources>
