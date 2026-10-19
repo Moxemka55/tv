@@ -1,0 +1,45 @@
+# Xiaomi Mi TV (MiTV-AXFR1, device "rango"), Android TV 11, PatchWall, 1 GB RAM
+# Build RTT0.210630.002.485, security patch 1 Nov 2025. Tested Oct 2026.
+# Apply: tools/disable.sh examples/xiaomi-rango/debloat.txt   Undo: tools/restore.sh <same file>
+# Everything is DISABLED for user 0, never uninstalled.
+# Comment out any line for an app you use.
+# This household: keeps voice search, HDMI, USB playback; no casting, no mirroring.
+# PatchWall and the stock launcher are handled separately - see NOTES.md.
+
+# Xiaomi telemetry and auto-installs
+com.miui.tv.analytics                        # Xiaomi telemetry
+com.xiaomi.statistic                         # Xiaomi telemetry
+android.autoinstalls.config.xioami.dangal    # silently installs promoted apps (sic: "xioami")
+
+# Xiaomi extras
+com.xiaomi.mitv.handbook                     # user manual app
+com.xiaomi.mimusic2                          # Mi Music
+com.mitv.tvlock                              # parental lock (keep if you use it)
+
+# Remote Home key + sponsored rows
+# WARNING: partnercustomizer catches the remote's Home key (keycode 192) and
+# opens PatchWall. Disabling it makes Home do nothing. See NOTES.md.
+com.xiaomi.android.tvsetup.partnercustomizer # Home-key handler + partner promos
+com.google.android.tvrecommendations         # recommendation / sponsored rows feeder
+
+# Casting and mirroring (keep if you cast or mirror from a phone)
+com.google.android.apps.mediashell           # Chromecast built-in
+com.xiaomi.mitv.smartshare                   # Mi screen share
+com.mitv.milinkservice                       # Mi mirroring service (~70 MB RAM at boot)
+com.xiaomi.wfdsinkhelperservice              # Miracast
+
+# Screensavers
+com.mitv.dream                               # Mi screensaver
+com.android.dreams.basic                     # basic screensaver
+com.google.android.backdrop                  # Ambient mode
+
+# Google extras
+com.google.android.videos                    # Google TV / Play Movies
+com.google.android.play.games
+com.google.android.feedback
+com.google.android.youtube.tvmusic           # YouTube Music
+com.android.printspooler
+
+# Optional: Xiaomi OTA updates (~89 MB RAM). Also stops updates re-enabling
+# PatchWall, but blocks security patches. Re-enable monthly to check.
+# com.xiaomi.mitv.updateservice
