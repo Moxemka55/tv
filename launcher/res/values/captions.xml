@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Captions (screensaver), one per assets/wallpapers/NN.jpg in order (01.jpg first). See WALLPAPER-CREDITS.md;
+         add a line to each array when you add a photo. -->
+    <string-array name="wallpaper_captions">
+        <item>Lake Louise, Canada</item>
+        <item>Austnesfjorden, Lofoten, Norway</item>
+        <item>Baleia Franca, Santa Catarina, Brazil</item>
+        <item>Lago do Cuniã, Amazonas, Brazil</item>
+        <item>Spullersee, Austria</item>
+        <item>Paczków, Poland</item>
+        <item>Stromboli, Italy</item>
+        <item>Flatirons, Colorado</item>
+        <item>Manneporte, Étretat, France</item>
+        <item>Kjeungskjær Lighthouse, Norway</item>
+        <item>Eilean Donan Castle, Scotland</item>
+        <item>Dzukou Valley, Nagaland</item>
+    </string-array>
+    <!-- Time of day each photo suits (morning / day / evening, space-separated), same order. The home screen
+         and screensaver show only the current period's photos when at least three match. -->
+    <string-array name="wallpaper_moods">
+        <item>day</item>
+        <item>day evening</item>
+        <item>evening</item>
+        <item>morning</item>
+        <item>morning</item>
+        <item>morning evening</item>
+        <item>day</item>
+        <item>morning</item>
+        <item>evening</item>
+        <item>day evening</item>
+        <item>day evening</item>
+        <item>day</item>
+    </string-array>
+</resources>

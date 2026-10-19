@@ -4,7 +4,8 @@
   Package names: tools/venv/bin/python -I tools/tv.py 'pm list packages'
 -->
 <resources>
-    <!-- Dock apps, left to right. Apps that aren't installed are skipped. -->
+    <!-- Default dock apps, left to right. Apps that aren't installed are skipped. Once you edit the dock on
+         the TV (hold OK on a tile) the TV's own copy wins; clear the launcher's data to go back to this. -->
     <string-array name="dock_apps">
         <item>com.apple.atve.androidtv.appletv</item>
         <item>com.google.android.youtube.tv</item>
@@ -31,4 +32,18 @@
 
     <!-- Tiles per row in the grid. -->
     <integer name="columns">5</integer>
+    <!-- Minutes between wallpaper changes on the home screen, and seconds per photo in the screensaver. -->
+    <integer name="wallpaper_minutes">10</integer>
+    <integer name="screensaver_seconds">45</integer>
+
+    <!-- Most recently used apps first in the grid (needs usage access, see Usage.java); A to Z otherwise. -->
+    <bool name="sort_grid_by_recent">true</bool>
+
+    <!-- Most apps in the dock; "Add to dock" says so when it's full. -->
+    <integer name="max_dock_apps">9</integer>
+
+    <!-- Vendor "screen off, keep sound" screen for the Quick settings panel, as package/activity. Empty to
+         leave the row out. Also add its package to <queries> in AndroidManifest.xml.
+         Realtek-based sets (Kodak, some Thomson/Blaupunkt): com.realtek.slices/com.realtek.tv.settings.activity.SoundOnlyActivity -->
+    <string name="screen_off_component" translatable="false"></string>
 </resources>

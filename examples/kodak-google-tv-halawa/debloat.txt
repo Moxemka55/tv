@@ -1,0 +1,19 @@
+# Kodak 4K Google TV by SPPL (device halawa, Realtek RTD2851A, 2 GB RAM), Android 14, build UKRE.260524.066
+# Apply: tools/disable.sh examples/kodak-google-tv-halawa/debloat.txt   Undo: tools/restore.sh <same file>
+# Everything is DISABLED for user 0, never uninstalled.
+# Comment out any line for an app you use. This household kept Chromecast and YouTube Music.
+
+# Ads and tracking
+tv.anoki.acr.anokiacroptin                     # ACR: fingerprints what's on screen (incl. HDMI) for ad targeting
+com.realtek.leanbacklauncher.partnercustomizer # sponsored / partner rows for the stock launcher
+com.google.android.videos                      # "Google TV" app: store + "Top picks" recommendation feed
+com.google.android.apps.tv.dreamx              # ambient screensaver with recommendations (the launcher has its own)
+com.google.android.feedback                    # Google feedback reporter
+com.android.tv.feedbackconsent                 # usage/diagnostics consent + reporting
+
+# Features this household didn't use
+com.google.android.katniss                     # Google Assistant / Gemini voice search (~100 MB RAM); mic button stops working
+com.rtk.mediabrowser                           # Realtek USB media player (VLC does the same)
+com.vewd.core.service                          # Vewd HbbTV / browser engine (no HbbTV in India)
+com.realtek.retailmode                         # in-store demo mode
+com.google.android.play.games                  # Play Games
