@@ -42,6 +42,10 @@ tools/disable.sh examples/tcl-google-tv-g07/debloat.txt     # or your own list, 
 launcher/build-and-install.sh                               # build + install the launcher
 ```
 
+Windows doesn't need bash: `powershell -File launcher/build-windows.ps1` builds and installs with
+the same bare-SDK-tools flow. It also normalizes asset paths (aapt2 on Windows stores them with
+backslashes, which breaks `AssetManager`).
+
 Undo everything with `tools/restore.sh <the same list>`.
 
 ## What's here
