@@ -10,7 +10,8 @@ SDK="${ANDROID_HOME:-/opt/homebrew/share/android-commandlinetools}"
 BT="$SDK/build-tools/34.0.0"
 JAR="$SDK/platforms/android-34/android.jar"
 # Google TV stock launcher; older Android TV sets use com.google.android.tvlauncher.
-STOCK_LAUNCHER="${STOCK_LAUNCHER:-com.google.android.apps.tv.launcherx}"
+# STOCK_LAUNCHER= (empty) keeps it enabled, e.g. when it's also the live TV app (AT&T TV / DIRECTV box).
+STOCK_LAUNCHER="${STOCK_LAUNCHER-com.google.android.apps.tv.launcherx}"
 B=build
 
 rm -rf "$B" && mkdir -p "$B/gen" "$B/classes" "$B/dex"
@@ -30,15 +31,20 @@ echo "built $B/tvhome.apk ($(wc -c < "$B/tvhome.apk") bytes)"
 [ "${1:-}" = "--build" ] && exit 0
 
 PY=../tools/venv/bin/python
+# A kept stock launcher outranks ours for Home, so route the Home key through HomeKeyService instead.
+HOME_KEY_SERVICE=com.mihir.tvhome/.HomeKeyService
+[ -z "$STOCK_LAUNCHER" ] && HOME_KEY_CMDS="settings put secure enabled_accessibility_services $HOME_KEY_SERVICE
+settings put secure accessibility_enabled 1" || HOME_KEY_CMDS=""
 "$PY" -I ../tools/tv.py --push-b64 "$B/tvhome.apk" /data/local/tmp/tvhome.apk
 printf '%s\n' \
   "pm install -r /data/local/tmp/tvhome.apk" \
   "rm -f /data/local/tmp/tvhome.apk" \
   "pm grant com.mihir.tvhome android.permission.ACCESS_FINE_LOCATION" \
   "cmd package set-home-activity --user 0 com.mihir.tvhome/.MainActivity" \
-  "pm disable-user --user 0 $STOCK_LAUNCHER" \
+  ${STOCK_LAUNCHER:+"pm disable-user --user 0 $STOCK_LAUNCHER"} \
   "pm disable-user --user 0 com.google.android.tungsten.setupwraith" \
   "cmd package set-home-activity --user 0 com.mihir.tvhome/.MainActivity" \
+  "$HOME_KEY_CMDS" \
   "am force-stop com.android.tv.settings" \
   "input keyevent KEYCODE_HOME" \
   | "$PY" -I ../tools/tv.py --batch
