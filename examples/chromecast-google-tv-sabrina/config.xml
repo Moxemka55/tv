@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Launcher settings. Edit, then run launcher/build-and-install.sh.
+  Package names: tools/venv/bin/python -I tools/tv.py 'pm list packages'
+  Chromecast with Google TV 4K: copy over launcher/res/values/config.xml. button_apps and
+  take_over_home need the launcher support that goes with NOTES.md in this folder.
+-->
+<resources>
+    <!-- Dock apps, left to right. Apps that aren't installed are skipped.
+         Netflix and YouTube sit at the end: the remote has dedicated buttons for them. -->
+    <string-array name="dock_apps">
+        <item>com.amazon.amazonvideo.livingroom</item>
+        <item>bbc.iplayer.android</item>
+        <item>com.channel4.ondemand</item>
+        <item>air.ITVMobilePlayer</item>
+        <item>tv.standard.nebula</item>
+        <item>com.netflix.ninja</item>
+        <item>com.google.android.youtube.tv</item>
+    </string-array>
+
+    <!-- Never shown as tiles. Settings already has a pill in the top bar. -->
+    <string-array name="hidden_apps">
+        <item>com.android.tv.settings</item>
+    </string-array>
+
+    <!-- The TV's Live TV / tuner app, listed last in the Inputs menu. Empty to leave it out.
+         Common ones: com.tcl.tv (TCL), com.mediatek.wwtv.tvcenter (Xiaomi, many MediaTek sets),
+         com.google.android.tv (Google Live Channels), com.sony.dtv.tvx (Sony).
+         A Chromecast has no inputs or tuner, so the Inputs pill hides itself. -->
+    <string name="live_tv_package" translatable="false"></string>
+
+    <!-- The manufacturer's own source picker, used if switching to an input directly fails. -->
+    <string name="input_picker_package" translatable="false"></string>
+
+    <!-- Remote buttons the stock launcher used to handle, as KEYCODE_NAME=package. Find a button's
+         code with `dumpsys window policy` (look for launcherx under the global keys). Empty on
+         TVs whose buttons still work. Chromecast remote: YouTube is BUTTON_3 (Netflix still works).
+         KEYCODE_ASSIST is the Assistant button: build-and-install.sh gives the launcher the Assistant
+         role so the button opens this app instead (disable com.google.android.katniss as well). -->
+    <string-array name="button_apps">
+        <item>KEYCODE_BUTTON_3=com.google.android.youtube.tv</item>
+        <item>KEYCODE_ASSIST=com.amazon.amazonvideo.livingroom</item>
+    </string-array>
+
+    <!-- For TVs where Android won't make this the real home screen, like a Chromecast with Google
+         TV: keep the stock home enabled, and have the remote's Home button (and the stock home
+         whenever it appears) open this launcher instead. See ButtonService.java. -->
+    <bool name="take_over_home">true</bool>
+
+    <!-- Tiles per row in the grid. -->
+    <integer name="columns">5</integer>
+</resources>

@@ -23,8 +23,10 @@ On a 2 GB TCL Google TV this disabled 25 bloat apps and cut the home screen's me
    anything, check every step with screenshots from the TV, and give me a restore script.
 
    Heads-up from people who've done this: use the adb-shell Python package if macOS blocks adb; on
-   Google TV also disable com.google.android.tungsten.setupwraith or it hijacks the Home button; and
-   test the Home button from inside an app.
+   Google TV also disable com.google.android.tungsten.setupwraith or it hijacks the Home button (on
+   a Chromecast with Google TV, read examples/chromecast-google-tv-sabrina/NOTES.md first: there
+   that breaks casting); test the Home button from inside an app; and restart the TV once at the end
+   to check it comes back.
    ```
 
 3. Accept "Allow USB debugging?" on the TV when asked, then answer a few questions: which apps you

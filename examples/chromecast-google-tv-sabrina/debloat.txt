@@ -1,0 +1,36 @@
+# Chromecast with Google TV 4K (device sabrina), Android 14, build UTTC.250917.004
+# Everything is DISABLED for user 0, never uninstalled. Re-enable with `pm enable <package>`.
+# Keep the stock home (launcherx) and the setup app (setupwraith) on. Cast needs setupwraith, and
+# setupwraith on with launcherx off boot-looped this Chromecast at its next restart (NOTES.md).
+# The launcher takes over the Home button instead (take_over_home in config.xml).
+# Answers here: casts from phones a lot, uses the phone remote, keeps Ambient Mode, doesn't use the
+# Assistant, never opened Play Movies or Play Games.
+
+# Ads and promoted installs
+android.autoinstalls.config.google.sabrina   # Play Auto Installs: silently installs promoted apps
+com.google.android.adservices.api            # Privacy Sandbox ad targeting and measurement
+com.google.android.ext.adservices.api        # older copy of the same
+
+# Telemetry
+com.google.android.feedback                  # "Market Feedback Agent": sends feedback / crash reports
+com.android.tv.feedbackconsent               # feedback and usage-sharing consent prompts
+com.google.android.tv.remotecontrol.logging  # logs remote-control button usage
+
+# Junk on a TV
+com.google.android.syncadapters.calendar     # Google Calendar sync (~10 MB, nothing on a TV reads it)
+
+# Features this household doesn't use
+com.google.android.katniss                   # Google Assistant, Gemini and voice search (~60 MB). Without it Cast gets frozen unless the launcher keeps it running (NOTES.md); the launcher can take over its button (KEYCODE_ASSIST)
+com.google.android.videos                    # Google Play Movies (buy/rent films)
+com.google.android.play.games                # Google Play Games
+
+# Kept on purpose:
+#   com.google.android.tungsten.setupwraith  Google TV setup app: Cast can't authenticate without it
+#   com.google.android.apps.tv.launcherx     Google TV home: disabling it boot-loops (NOTES.md)
+#   com.google.android.apps.mediashell       Google Cast (casting from phones). Assistant kept it running;
+#                                            without it the launcher has to (HomeApplication.java)
+#   com.google.android.tv.remote.service     phone remote (Google Home / Google TV app)
+#   com.google.android.tv.axel               IR service: the remote's TV power and volume buttons
+#   com.google.android.apps.tv.dreamx        Ambient Mode screensaver
+#   com.google.android.tv.dfuservice         remote firmware updates
+#   com.netflix.tokenmanager                 needed for Netflix sign-in
