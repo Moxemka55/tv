@@ -561,7 +561,7 @@ public class MainActivity extends Activity {
                 if (!launch(i)) openPackage(inputPickerPkg);
             }));
         }
-        if (isInstalled(liveTvPkg)) rows.add(inputRow("Live TV", () -> openPackage(liveTvPkg)));
+        if (isInstalled(liveTvPkg)) rows.add(inputRow("Live TV", () -> openLiveTv(tim)));
         if (inputs.isEmpty() && isInstalled(inputPickerPkg)) rows.add(inputRow("All sources…", () -> openPackage(inputPickerPkg)));
 
         if (rows.isEmpty()) rows.add(inputRow("Settings", () -> launch(new Intent(Settings.ACTION_SETTINGS))));
@@ -582,6 +582,22 @@ public class MainActivity extends Activity {
         inputsPopup = pw;
         pw.showAsDropDown(anchor, 0, dp(8), Gravity.START);
         rows.get(0).requestFocus();
+    }
+
+    /** Live TV apps reopen the last source (often an HDMI port), so ask for the tuner itself. */
+    private void openLiveTv(TvInputManager tim) {
+        TvInputInfo tuner = null;
+        if (tim != null) for (TvInputInfo t : tim.getTvInputList()) {
+            if (t.getType() == TvInputInfo.TYPE_TUNER && !t.isHidden(this)
+                    && (tuner == null || t.getId().compareTo(tuner.getId()) < 0)) tuner = t;
+        }
+        if (tuner != null) {
+            // MediaTek's Live TV (com.mediatek.wwtv.tvcenter) tunes any input given as a passthrough URI.
+            Intent i = new Intent(Intent.ACTION_VIEW, TvContract.buildChannelUriForPassthroughInput(tuner.getId()))
+                    .setPackage(liveTvPkg);
+            if (launch(i)) return;
+        }
+        openPackage(liveTvPkg);
     }
 
     private String inputLabel(TvInputInfo t) {
