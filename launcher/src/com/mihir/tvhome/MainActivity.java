@@ -22,6 +22,8 @@ import android.graphics.drawable.GradientDrawable;
 import android.media.tv.TvContract;
 import android.media.tv.TvInputInfo;
 import android.media.tv.TvInputManager;
+import android.net.ConnectivityManager;
+import android.net.NetworkCapabilities;
 import android.net.wifi.WifiManager;
 import android.os.Bundle;
 import android.os.Handler;
@@ -622,13 +624,19 @@ public class MainActivity extends Activity {
     }
 
     private void updateWifi() {
-        String name = "Wi-Fi";
+        // With Location off, Android 11 hides the SSID and reports network ID -1 even when
+        // connected, so ask ConnectivityManager whether we are online.
+        String name = "Offline";
         try {
-            WifiManager wm = (WifiManager) getApplicationContext().getSystemService(WIFI_SERVICE);
-            if (wm != null && wm.getConnectionInfo() != null) {
-                String s = wm.getConnectionInfo().getSSID();
+            ConnectivityManager cm = (ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
+            NetworkCapabilities nc = cm == null ? null : cm.getNetworkCapabilities(cm.getActiveNetwork());
+            if (nc != null && nc.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)) {
+                name = "Ethernet";
+            } else if (nc != null && nc.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) {
+                name = "Wi-Fi";
+                WifiManager wm = (WifiManager) getApplicationContext().getSystemService(WIFI_SERVICE);
+                String s = wm == null || wm.getConnectionInfo() == null ? null : wm.getConnectionInfo().getSSID();
                 if (s != null && !s.contains("unknown ssid")) name = s.replace("\"", "");
-                if (wm.getConnectionInfo().getNetworkId() == -1) name = "Offline";
             }
         } catch (SecurityException ignored) { }
         wifiPill.setText("◉  " + name);
