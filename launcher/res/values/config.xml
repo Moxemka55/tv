@@ -23,11 +23,25 @@
 
     <!-- The TV's Live TV / tuner app, listed last in the Inputs menu. Empty to leave it out.
          Common ones: com.tcl.tv (TCL), com.mediatek.wwtv.tvcenter (Xiaomi, many MediaTek sets),
-         com.google.android.tv (Google Live Channels), com.sony.dtv.tvx (Sony). -->
+         com.google.android.tv (Google Live Channels), com.sony.dtv.tvx (Sony).
+         On a streaming stick with no inputs or tuner (Chromecast), the Inputs pill hides itself. -->
     <string name="live_tv_package" translatable="false">com.tcl.tv</string>
 
     <!-- The manufacturer's own source picker, used if switching to an input directly fails. -->
     <string name="input_picker_package" translatable="false">com.tcl.suspension</string>
+
+    <!-- Remote buttons the stock launcher used to handle, as KEYCODE_NAME=package. Find a button's
+         code with `dumpsys window policy` (look for the stock launcher under the global keys). Empty
+         on TVs whose buttons still work. Chromecast remote: YouTube is KEYCODE_BUTTON_3.
+         KEYCODE_ASSIST is the Assistant button: build-and-install.sh gives the launcher the Assistant
+         role so the button opens this app instead (disable com.google.android.katniss as well).
+         For example, an item of KEYCODE_BUTTON_3=com.google.android.youtube.tv. -->
+    <string-array name="button_apps" />
+
+    <!-- For TVs where Android won't make this the real home screen, like a Chromecast with Google
+         TV: keep the stock home enabled, and have the remote's Home button (and the stock home
+         whenever it appears) open this launcher instead. See ButtonService.java and the README. -->
+    <bool name="take_over_home">false</bool>
 
     <!-- Tiles per row in the grid. -->
     <integer name="columns">5</integer>
