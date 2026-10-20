@@ -23,11 +23,14 @@
 
     <!-- The TV's Live TV / tuner app, listed last in the Inputs menu. Empty to leave it out.
          Common ones: com.tcl.tv (TCL), com.mediatek.wwtv.tvcenter (Xiaomi, many MediaTek sets),
-         com.google.android.tv (Google Live Channels), com.sony.dtv.tvx (Sony). -->
+         com.google.android.tv (Google Live Channels), com.sony.dtv.tvx (Sony),
+         com.att.tv.openvideo (AT&amp;T TV / DIRECTV Stream box). -->
     <string name="live_tv_package" translatable="false">com.tcl.tv</string>
 
     <!-- The manufacturer's own source picker, used if switching to an input directly fails. -->
     <string name="input_picker_package" translatable="false">com.tcl.suspension</string>
+
+    <string name="home_key_service_description" translatable="false">Opens Home when you press the Home button.</string>
 
     <!-- Tiles per row in the grid. -->
     <integer name="columns">5</integer>

@@ -1,0 +1,34 @@
+# AT&T TV / DIRECTV Stream box (WNC C71KW, device c71kw400-4gb), Android TV 11,
+# build RTT4.250301.001.release-r-wnc-26Q3.2-HF
+# Apply: tools/disable.sh examples/att-tv-c71kw/debloat.txt   Undo: examples/att-tv-c71kw/restore.sh
+# Launcher: STOCK_LAUNCHER= launcher/build-and-install.sh  (keeps DIRECTV; Home goes via HomeKeyService)
+# Also set by hand: settings put secure screensaver_components com.android.dreams.basic/.Colors
+# Everything is DISABLED for user 0, never uninstalled.
+# Kept on purpose: com.att.tv.openvideo (DIRECTV live TV; the Play Store version won't install on this
+# box), AT&T security / securestore / firmware update (swdl) / remote / pairing / hwmonitor services,
+# com.att.ngc.fallbackhome (safety-net home), voice search (katniss) and Chromecast (mediashell).
+
+# Ads
+com.glance.tv.directv              # Glance: sponsored "screensaver" (falls back to the basic one)
+android.autoinstalls.config.att    # silently installs promoted apps
+
+# Google extras this household doesn't use
+com.google.android.tvrecommendations  # recommendation rows for the stock home screen
+com.google.android.backdrop        # Ambient mode screensaver
+com.google.android.play.games
+com.playworks.freegames
+com.google.android.feedback
+
+# Apps this household doesn't use
+com.discovery.discoveryplus.mobile
+com.pandora.android.atv
+tv.pluto.android
+com.weathergroup.localnow
+
+# AT&T telemetry and remote management (applied one at a time; box checked after each)
+com.att.ngc.logreporting           # log upload
+com.att.ngc.report.error           # error reporting
+# com.att.ngc.log                  # KEEP: local log collector. Disabled, ngc_hwmonitor retries binding
+                                   # it ~11x/second forever. Uploading stays off via logreporting above.
+com.att.ngc.uspservice             # TR-369 / USP remote management agent
+com.att.ngc_swmonitor              # software monitor / reporting

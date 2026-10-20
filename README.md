@@ -83,6 +83,19 @@ Change the dock: edit `config.xml`, then run `launcher/build-and-install.sh`.
   scripts run one per shell call.
 - **Apps installed from the Play Store didn't appear**, because the package broadcast was missed
   while another app was in front. The launcher re-checks with `getChangedPackages` on every return.
+- **The stock home is also the live TV app** (AT&T TV / DIRECTV Stream box), so it can't be
+  disabled, and Android always prefers a privileged home app with priority > 0 over your choice.
+  Install with `STOCK_LAUNCHER= launcher/build-and-install.sh`: the stock app stays, and the
+  launcher's `HomeKeyService` (an accessibility service that only filters the Home key) sends Home
+  to the launcher and keeps the stock app from taking over at boot. Turn it off and Home goes back
+  to the stock app.
+- **`input keyevent KEYCODE_HOME` skips accessibility services**, so it can't test the above. Press
+  Home like a real remote with a virtual HID device:
+  `tools/venv/bin/python -I tools/tv.py "hid /data/local/tmp/home-key.json"` after copying
+  [tools/hid/home-key.json](tools/hid/home-key.json) there.
+- **Disabling a vendor service can make another one retry forever.** On the AT&T box, disabling
+  `com.att.ngc.log` made the hardware monitor retry it ~11 times a second. Check `logcat` for
+  `Unable to start service` after each change.
 - **Unsplash blocks scripted downloads** with a bot check. The wallpapers come from Wikimedia
   Commons Featured Pictures instead.
 
@@ -90,7 +103,8 @@ Change the dock: edit `config.xml`, then run `launcher/build-and-install.sh`.
 
 Android TV and Google TV: TCL, Xiaomi/Redmi, Hisense, Sony, OnePlus, Realme, Nvidia Shield,
 Chromecast with Google TV and most others. Not Samsung (Tizen), LG (webOS) or Fire TV.
-Tested on: TCL Google TV (Android 11). Add yours to `examples/`.
+Tested on: TCL Google TV (Android 11), AT&T TV / DIRECTV Stream box C71KW (Android TV 11).
+Add yours to `examples/`.
 
 ## Credits
 

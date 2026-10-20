@@ -22,6 +22,8 @@ import android.graphics.drawable.GradientDrawable;
 import android.media.tv.TvContract;
 import android.media.tv.TvInputInfo;
 import android.media.tv.TvInputManager;
+import android.net.ConnectivityManager;
+import android.net.NetworkCapabilities;
 import android.net.wifi.WifiManager;
 import android.os.Bundle;
 import android.os.Handler;
@@ -631,6 +633,10 @@ public class MainActivity extends Activity {
                 if (wm.getConnectionInfo().getNetworkId() == -1) name = "Offline";
             }
         } catch (SecurityException ignored) { }
+        // Set-top boxes are often wired; Wi-Fi then reports no network.
+        ConnectivityManager cm = (ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
+        NetworkCapabilities nc = cm == null ? null : cm.getNetworkCapabilities(cm.getActiveNetwork());
+        if (nc != null && nc.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)) name = "Ethernet";
         wifiPill.setText("◉  " + name);
     }
 

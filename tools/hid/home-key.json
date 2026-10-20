@@ -1,0 +1,6 @@
+{"id":1,"command":"register","name":"tvhome-test-remote","vid":6353,"pid":42,"bus":"usb","descriptor":[5,12,9,1,161,1,133,1,21,0,38,255,3,25,0,42,255,3,117,16,149,1,129,0,192]}
+{"id":1,"command":"delay","duration":1500}
+{"id":1,"command":"report","report":[1,35,2]}
+{"id":1,"command":"delay","duration":80}
+{"id":1,"command":"report","report":[1,0,0]}
+{"id":1,"command":"delay","duration":800}
