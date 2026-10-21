@@ -26,7 +26,7 @@ import android.view.accessibility.AccessibilityEvent;
  * over (a Chromecast always picks Google TV's home, and disabling that boot-loops it): the Home
  * button opens this launcher, and so does the stock home screen whenever Android shows it (at
  * startup, on wake). Its other screens, like account checks Settings opens, are left alone, and so
- * is anything that opens while a cover is pending (an app cast from a phone right after waking).
+ * is an app whose window appears while a cover is pending.
  * It only sees which package and class each window change comes from, never window content.
  */
 public class ButtonService extends AccessibilityService {
@@ -100,6 +100,8 @@ public class ButtonService extends AccessibilityService {
 
     @Override public void onInterrupt() { }
 
+    /** An explicit start, not a Home intent: that would make this the home process, and launcherx,
+     *  no longer exempt from background-start limits, couldn't open apps for the remote's buttons. */
     private void showHome() {
         try {
             startActivity(new Intent(this, MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
