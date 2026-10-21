@@ -10,7 +10,7 @@ PY="${PY:-tools/venv/bin/python}"
 tv() { "$PY" -I tools/tv.py "$@"; }
 free() { tv 'dumpsys meminfo | grep "Free RAM"' | sed 's/^ *//' | cut -c1-24; }
 
-KEEP=" com.mihir.tvhome com.android.tv.settings com.android.vending io.github.jqssun.airplay $* "
+KEEP=" com.mihir.tvhome com.android.tv.settings com.android.vending $* "
 echo "before: $(free)"
 tv "cmd package query-activities --brief -a android.intent.action.MAIN -c android.intent.category.LEANBACK_LAUNCHER" \
   | awk -F/ 'NF > 1 {gsub(/^ +/, "", $1); print $1}' | sort -u \

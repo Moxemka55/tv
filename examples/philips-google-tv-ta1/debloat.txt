@@ -1,7 +1,7 @@
 # Philips Google TV (TPV TA1, device PH1M_WW_9972), Android 14, build UKN2.241117.001
 # Apply: tools/disable.sh examples/philips-google-tv-ta1/debloat.txt   Undo: tools/restore.sh <same file>
 # Everything is DISABLED for user 0, never uninstalled.
-# Answers here: keep Ambilight + Hue; no casting, AirPlay or Alexa; no antenna/cable TV, teletext or USB/DLNA media.
+# Answers here: keep Ambilight + Hue and Chromecast; no AirPlay (the built-in one never advertises) or Alexa; no antenna/cable TV, teletext or USB/DLNA media.
 
 # Ads, promos and telemetry
 com.tpv.nftgallery                 # "NFT Collection" promo tile
@@ -15,9 +15,8 @@ org.droidtv.demome                 # shop demo mode
 org.droidtv.hbbtvopapp             # HbbTV (interactive broadcast ads)
 
 # Features you said you don't use
-com.google.android.apps.mediashell # Chromecast built-in (casting from phone)
 com.mediatek.AirplayAPK            # built-in AirPlay: enabled it, the TV never advertised itself on the network
-com.mediatek.airplaydaemon         # (use the AirPlay server app instead)
+com.mediatek.airplaydaemon         # (both run but never advertise; two idle processes ~140 MB)
 org.droidtv.amazonalexa            # Alexa voice (Google Assistant is separate)
 org.droidtv.teletext
 org.droidtv.dlna                   # DLNA media server/renderer
