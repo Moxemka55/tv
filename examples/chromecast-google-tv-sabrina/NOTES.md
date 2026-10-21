@@ -69,8 +69,17 @@ accessibility service (`ButtonService`) then:
 
 It sees which package and class each window change comes from, never window content, and only
 covers launcherx's `HomeActivity`. Settings opens other launcherx screens, such as
-`AccountVerificationActivity`, and those are left alone. So is anything that opens during the 250 ms
-wait, such as an app cast from a phone right after waking.
+`AccountVerificationActivity`, and those are left alone. So is an app whose window appears during the
+250 ms wait. An app that starts in that window but draws later (YouTube takes 0.3–0.6 s) can still end
+up behind the launcher. Casting to a sleeping TV isn't affected: it wakes straight into the Cast
+receiver, and the stock home never appears.
+
+Open the launcher with an explicit start (`new Intent(this, MainActivity.class)`), not a full Home
+intent (`ACTION_MAIN` + `CATEGORY_HOME`). With a Home intent, Android files the launcher in its home
+task and makes it the home process. launcherx then loses its exemption from Android 14's limits on
+background activity starts, so the remote's YouTube and Netflix buttons stop opening their apps: the
+log says `Background activity launch blocked` and `BAL_BLOCK`. This was seen with cleanyourtv's
+launcher.
 
 Tested after a deliberate restart:
 - Home from inside Netflix, YouTube and Prime Video.
