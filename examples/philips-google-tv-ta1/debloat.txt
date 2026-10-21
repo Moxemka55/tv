@@ -16,8 +16,8 @@ org.droidtv.hbbtvopapp             # HbbTV (interactive broadcast ads)
 
 # Features you said you don't use
 com.google.android.apps.mediashell # Chromecast built-in (casting from phone)
-com.mediatek.AirplayAPK            # AirPlay
-com.mediatek.airplaydaemon
+com.mediatek.AirplayAPK            # built-in AirPlay: enabled it, the TV never advertised itself on the network
+com.mediatek.airplaydaemon         # (use the AirPlay server app instead)
 org.droidtv.amazonalexa            # Alexa voice (Google Assistant is separate)
 org.droidtv.teletext
 org.droidtv.dlna                   # DLNA media server/renderer

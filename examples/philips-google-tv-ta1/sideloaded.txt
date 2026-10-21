@@ -1,0 +1,9 @@
+# Apps installed outside Google Play on this TV. Verified before install: APK signature (v1+v2) valid, contains
+# armeabi-v7a libraries (the TV is 32-bit), permissions and boot receivers read from the manifest.
+io.github.jqssun.airplay 0.0.36  https://github.com/jqssun/android-airplay-server/releases/tag/v0.0.36
+  sha256 b8c7c595ed93f91562feedce92c27800f08f9c84df424f6ac2045e82324cf2a4  (app-release.apk)
+  signer sha256 64ca1fa39ddf9e0e89c57d73fb681d2a5b35ae20f071771e2eb401b5032ef1a9
+  Why: iPhone screen mirroring / AirPlay receiver (the TV's built-in MediaTek AirPlay never advertised itself).
+  Settings are changed over ADB, e.g. H.265 off (this TV's HEVC decoder shows a frozen picture for mirroring):
+    am broadcast -n io.github.jqssun.airplay/.SettingsReceiver -a io.github.jqssun.airplay.SET_SETTING --es key h265 --es value off
+  Starts at boot (~42 MB) and stays running; turn off in the app's Settings if you'd rather launch it on demand.
