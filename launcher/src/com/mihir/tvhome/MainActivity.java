@@ -82,6 +82,7 @@ public class MainActivity extends Activity {
 
     private HomeScrollView scroll;
     private LinearLayout content, dockRow;
+    private MaxHeightScrollView dockScroll;
     private FrameLayout hero;
     private LinearLayout grid;
     private View glow;
@@ -253,8 +254,20 @@ public class MainActivity extends Activity {
         band.setCornerRadius(dp(26));
         band.setColor(0x1FFFFFFF);
         band.setStroke(dp(1), 0x14FFFFFF);
-        dockRow.setBackground(band);
-        bottom.addView(dockRow, new LinearLayout.LayoutParams(-1, -2));
+        // Enough dock rows to reach the clock scroll inside the band, fading out at the edges.
+        dockScroll = new MaxHeightScrollView(this);
+        dockScroll.setBackground(band);
+        dockScroll.setVerticalScrollBarEnabled(false);
+        dockScroll.setOverScrollMode(View.OVER_SCROLL_NEVER);
+        dockScroll.setVerticalFadingEdgeEnabled(true);
+        dockScroll.setFadingEdgeLength(dp(48));
+        dockScroll.addView(dockRow, new FrameLayout.LayoutParams(-1, -2));
+        bottom.addView(dockScroll, new LinearLayout.LayoutParams(-1, -2));
+        View header = hero.getChildAt(0);
+        header.measure(View.MeasureSpec.UNSPECIFIED, View.MeasureSpec.UNSPECIFIED);
+        title.measure(View.MeasureSpec.UNSPECIFIED, View.MeasureSpec.UNSPECIFIED);
+        dockScroll.max = screenH - dp(36) - header.getMeasuredHeight() - dp(24)
+                - title.getMeasuredHeight() - dp(14) - dp(30);
 
         appsLabel = text(11, "sans-serif-medium", 0x99FFFFFF);
         appsLabel.setText("ALL APPS");
@@ -541,9 +554,9 @@ public class MainActivity extends Activity {
         int y = grid.getTop() + row.getTop();
         int screenH = getResources().getDisplayMetrics().heightPixels;
         // First grid row: slide the dock band up to the top edge; later rows centre on screen.
-        View band = (View) dockRow.getParent();
+        View band = (View) dockScroll.getParent();
         int target = grid.indexOfChild(row) == 0
-                ? hero.getTop() + band.getTop() + dockRow.getTop() - dp(22)
+                ? hero.getTop() + band.getTop() + dockScroll.getTop() - dp(22)
                 : y - (int) (screenH * 0.42f);
         int max = Math.max(0, content.getHeight() - scroll.getHeight());
         scroll.smoothScrollTo(0, Math.max(0, Math.min(target, max)));
@@ -855,6 +868,15 @@ public class MainActivity extends Activity {
         @Override protected void onMeasure(int w, int h) {
             int width = MeasureSpec.getSize(w);
             super.onMeasure(w, MeasureSpec.makeMeasureSpec(width * 9 / 16, MeasureSpec.EXACTLY));
+        }
+    }
+
+    /** ScrollView no taller than max. */
+    static final class MaxHeightScrollView extends android.widget.ScrollView {
+        int max = Integer.MAX_VALUE;
+        MaxHeightScrollView(Context c) { super(c); }
+        @Override protected void onMeasure(int w, int h) {
+            super.onMeasure(w, MeasureSpec.makeMeasureSpec(max, MeasureSpec.AT_MOST));
         }
     }
 
