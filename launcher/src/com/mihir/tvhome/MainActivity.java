@@ -97,6 +97,7 @@ public class MainActivity extends Activity {
     private int glowColor = 0xFF3A3A3A;
     private ValueAnimator glowAnim;
     private int lastFocusedId = View.NO_ID;
+    private boolean resumed;
     private boolean firstShow = true;
     private int packageSeq;
     private PopupWindow inputsPopup;
@@ -136,6 +137,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
+        resumed = true;
         IntentFilter tf = new IntentFilter(Intent.ACTION_TIME_TICK);
         tf.addAction(Intent.ACTION_TIME_CHANGED);
         tf.addAction(Intent.ACTION_TIMEZONE_CHANGED);
@@ -157,6 +159,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onPause() {
         super.onPause();
+        resumed = false;
         handler.removeCallbacks(rotateWallpaper);
         unregisterReceiver(tick);
         if (inputsPopup != null) inputsPopup.dismiss();
@@ -171,8 +174,9 @@ public class MainActivity extends Activity {
     @Override
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
-        // Home pressed while already home: jump back to the first dock app.
+        // Home pressed while already home: jump back to the first dock app. From another app, keep focus where it was.
         if (inputsPopup != null) inputsPopup.dismiss();
+        if (!resumed) return;
         if (!dockCards.isEmpty()) dockCards.get(0).requestFocus();
         scroll.smoothScrollTo(0, 0);
     }
@@ -341,6 +345,8 @@ public class MainActivity extends Activity {
 
     private void buildApps() {
         PackageManager pm = getPackageManager();
+        View f = getCurrentFocus();
+        String focusedPkg = f != null && f.getTag() instanceof App ? ((App) f.getTag()).pkg : null;
         android.content.pm.ChangedPackages changed = pm.getChangedPackages(packageSeq);
         if (changed != null) packageSeq = changed.getSequenceNumber();
         Intent q = new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LEANBACK_LAUNCHER);
@@ -400,6 +406,10 @@ public class MainActivity extends Activity {
         wireFocus();
 
         if (!dock.isEmpty()) { title.setText(dock.get(0).label); setGlow(dock.get(0).color); }
+        // View ids are new after a rebuild (e.g. an app updated while another was in front), so refocus by package.
+        List<View> all = new ArrayList<>(dockCards);
+        all.addAll(gridCards);
+        for (View c : all) if (((App) c.getTag()).pkg.equals(focusedPkg)) { c.requestFocus(); return; }
         View last = lastFocusedId == View.NO_ID ? null : findViewById(lastFocusedId);
         if (last != null) last.requestFocus();
         else if (!dockCards.isEmpty()) dockCards.get(0).requestFocus();
