@@ -3,6 +3,7 @@ package com.mihir.tvhome;
 import android.animation.ArgbEvaluator;
 import android.animation.ValueAnimator;
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.content.BroadcastReceiver;
 import android.content.ComponentName;
 import android.content.Context;
@@ -28,6 +29,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
 import android.provider.Settings;
+import android.text.TextUtils;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.KeyEvent;
@@ -62,7 +64,8 @@ import java.util.Set;
 public class MainActivity extends Activity {
 
     // Dock, hidden apps, Live TV and grid width come from res/values/config.xml.
-    private String[] dockApps;
+    private final List<String> dockApps = new ArrayList<>(); // saved order, else config.xml
+    private String moving; // dock app being rearranged, or null
     private final Set<String> hidden = new HashSet<>();
     private String liveTvPkg, inputPickerPkg;
     private int cols, dockCols;
@@ -113,7 +116,9 @@ public class MainActivity extends Activity {
     @Override
     protected void onCreate(Bundle b) {
         super.onCreate(b);
-        dockApps = getResources().getStringArray(R.array.dock_apps);
+        String saved = getPreferences(MODE_PRIVATE).getString("dock", null);
+        dockApps.addAll(Arrays.asList(saved != null ? TextUtils.split(saved, ",")
+                : getResources().getStringArray(R.array.dock_apps)));
         hidden.addAll(Arrays.asList(getResources().getStringArray(R.array.hidden_apps)));
         hidden.add(getPackageName());
         liveTvPkg = getString(R.string.live_tv_package);
@@ -160,6 +165,7 @@ public class MainActivity extends Activity {
         super.onPause();
         handler.removeCallbacks(rotateWallpaper);
         unregisterReceiver(tick);
+        moving = null;
         if (inputsPopup != null) inputsPopup.dismiss();
     }
 
@@ -173,6 +179,7 @@ public class MainActivity extends Activity {
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
         // Home pressed while already home: jump back to the first dock app.
+        moving = null;
         if (inputsPopup != null) inputsPopup.dismiss();
         if (!dockCards.isEmpty()) dockCards.get(0).requestFocus();
         scroll.smoothScrollTo(0, 0);
@@ -474,6 +481,7 @@ public class MainActivity extends Activity {
                 .addCategory(Intent.CATEGORY_LEANBACK_LAUNCHER)
                 .setComponent(app.component)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)));
+        card.setOnLongClickListener(v -> { editTile(app, inDock); return true; });
         card.setOnFocusChangeListener((v, has) -> {
             float s = has ? (inDock ? 1.12f : 1.1f) : 1f;
             v.animate().scaleX(s).scaleY(s).translationZ(has ? dp(14) : 0)
@@ -623,6 +631,65 @@ public class MainActivity extends Activity {
             r.setTextColor(has ? 0xFF111111 : Color.WHITE);
         });
         return r;
+    }
+
+    // ---------------------------------------------------------------- editing the dock
+
+    /** Long-press menu: add an app to the dock, or move / remove a dock app. */
+    private void editTile(App app, boolean inDock) {
+        String[] items = inDock ? new String[]{"Move", "Remove from favorites"} : new String[]{"Add to favorites"};
+        new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                .setTitle(app.label)
+                .setItems(items, (d, which) -> {
+                    if (!inDock) {
+                        dockApps.add(app.pkg);
+                        saveDock();
+                        focusDock(app.pkg);
+                    } else if (which == 0) {
+                        moving = app.pkg;
+                        focusDock(app.pkg);
+                    } else {
+                        int i = dockPackages().indexOf(app.pkg);
+                        dockApps.remove(app.pkg);
+                        saveDock();
+                        if (!dockCards.isEmpty()) dockCards.get(Math.min(i, dockCards.size() - 1)).requestFocus();
+                    }
+                })
+                .show();
+    }
+
+    /** Move the app being rearranged by delta places among the visible dock tiles. */
+    private void moveBy(int delta) {
+        List<String> order = dockPackages();
+        int i = order.indexOf(moving), j = Math.max(0, Math.min(order.size() - 1, i + delta));
+        if (i < 0 || i == j) return;
+        order.add(j, order.remove(i));
+        for (String p : dockApps) if (!order.contains(p)) order.add(p); // keep uninstalled favourites
+        dockApps.clear();
+        dockApps.addAll(order);
+        saveDock();
+        focusDock(moving);
+    }
+
+    private List<String> dockPackages() {
+        List<String> l = new ArrayList<>();
+        for (View c : dockCards) l.add(((App) c.getTag()).pkg);
+        return l;
+    }
+
+    private void saveDock() {
+        getPreferences(MODE_PRIVATE).edit().putString("dock", TextUtils.join(",", dockApps)).apply();
+        buildApps();
+    }
+
+    private void focusDock(String pkg) {
+        for (View c : dockCards) {
+            App a = (App) c.getTag();
+            if (!a.pkg.equals(pkg)) continue;
+            c.requestFocus();
+            if (pkg.equals(moving)) title.setText("Moving " + a.label + "   \u25C0 \u25B6 \u25B2 \u25BC   OK when done");
+            return;
+        }
     }
 
     // ---------------------------------------------------------------- status
@@ -841,6 +908,21 @@ public class MainActivity extends Activity {
 
     @Override
     public boolean dispatchKeyEvent(KeyEvent e) {
+        // Rearranging: arrows move the app, OK / Back finish. Both key actions are eaten so the
+        // key-up can't click the tile or trigger Back.
+        if (moving != null) {
+            int k = e.getKeyCode();
+            int delta = k == KeyEvent.KEYCODE_DPAD_LEFT ? -1 : k == KeyEvent.KEYCODE_DPAD_RIGHT ? 1
+                    : k == KeyEvent.KEYCODE_DPAD_UP ? -dockCols : k == KeyEvent.KEYCODE_DPAD_DOWN ? dockCols : 0;
+            boolean done = k == KeyEvent.KEYCODE_DPAD_CENTER || k == KeyEvent.KEYCODE_ENTER || k == KeyEvent.KEYCODE_BACK;
+            if (delta != 0 || done) {
+                if (e.getAction() == KeyEvent.ACTION_DOWN) {
+                    if (delta != 0) moveBy(delta);
+                    else { String p = moving; moving = null; focusDock(p); }
+                }
+                return true;
+            }
+        }
         // Menu key on the remote opens the Inputs dropdown.
         if (e.getKeyCode() == KeyEvent.KEYCODE_MENU && e.getAction() == KeyEvent.ACTION_UP && !pills.isEmpty()) {
             showInputs(pills.get(0));
