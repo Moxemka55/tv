@@ -65,7 +65,7 @@ public class MainActivity extends Activity {
     private String[] dockApps;
     private final Set<String> hidden = new HashSet<>();
     private String liveTvPkg, inputPickerPkg;
-    private int cols;
+    private int cols, dockCols;
 
     static final class App {
         String pkg, label;
@@ -119,6 +119,7 @@ public class MainActivity extends Activity {
         liveTvPkg = getString(R.string.live_tv_package);
         inputPickerPkg = getString(R.string.input_picker_package);
         cols = getResources().getInteger(R.integer.columns);
+        dockCols = getResources().getInteger(R.integer.dock_columns);
         getWindow().getDecorView().setSystemUiVisibility(
                 View.SYSTEM_UI_FLAG_FULLSCREEN | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
                         | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY | View.SYSTEM_UI_FLAG_LAYOUT_STABLE);
@@ -244,8 +245,7 @@ public class MainActivity extends Activity {
         ((LinearLayout.LayoutParams) title.getLayoutParams()).setMargins(dp(8), 0, 0, dp(14));
 
         dockRow = new LinearLayout(this);
-        dockRow.setOrientation(LinearLayout.HORIZONTAL);
-        dockRow.setGravity(Gravity.CENTER);
+        dockRow.setOrientation(LinearLayout.VERTICAL); // rows of dockCols tiles
         dockRow.setClipChildren(false);
         dockRow.setClipToPadding(false);
         dockRow.setPadding(dp(20), dp(22), dp(20), dp(22));
@@ -370,14 +370,22 @@ public class MainActivity extends Activity {
         dockCards.clear();
         gridCards.clear();
 
+        LinearLayout row = null;
         for (int i = 0; i < dock.size(); i++) {
+            if (i % dockCols == 0) {
+                row = new LinearLayout(this);
+                row.setClipChildren(false);
+                row.setClipToPadding(false);
+                dockRow.addView(row, llp(-1, -2, 0, i == 0 ? 0 : dp(18), 0, 0));
+            }
             View tile = tile(dock.get(i), true);
             LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, -2, 1f);
-            p.setMargins(i == 0 ? 0 : dp(10), 0, i == dock.size() - 1 ? 0 : dp(10), 0);
-            dockRow.addView(tile, p);
+            p.setMargins(i % dockCols == 0 ? 0 : dp(10), 0, i % dockCols == dockCols - 1 ? 0 : dp(10), 0);
+            row.addView(tile, p);
         }
+        padRow(row, dock.size(), dockCols);
 
-        LinearLayout row = null;
+        row = null;
         for (int i = 0; i < rest.size(); i++) {
             if (i % cols == 0) {
                 row = new LinearLayout(this);
@@ -390,12 +398,7 @@ public class MainActivity extends Activity {
             p.setMargins(i % cols == 0 ? 0 : dp(10), 0, i % cols == cols - 1 ? 0 : dp(10), 0);
             row.addView(tile, p);
         }
-        // Pad the last row so tiles keep their width.
-        if (row != null) for (int i = rest.size() % cols; i != 0 && i < cols; i++) {
-            LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, 1, 1f);
-            p.setMargins(dp(10), 0, i == cols - 1 ? 0 : dp(10), 0);
-            row.addView(new View(this), p);
-        }
+        padRow(row, rest.size(), cols);
         appsLabel.setVisibility(rest.isEmpty() ? View.GONE : View.VISIBLE);
         wireFocus();
 
@@ -403,6 +406,15 @@ public class MainActivity extends Activity {
         View last = lastFocusedId == View.NO_ID ? null : findViewById(lastFocusedId);
         if (last != null) last.requestFocus();
         else if (!dockCards.isEmpty()) dockCards.get(0).requestFocus();
+    }
+
+    /** Pad the last row so tiles keep their width. */
+    private void padRow(LinearLayout row, int n, int perRow) {
+        if (row != null) for (int i = n % perRow; i != 0 && i < perRow; i++) {
+            LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, 1, 1f);
+            p.setMargins(dp(10), 0, i == perRow - 1 ? 0 : dp(10), 0);
+            row.addView(new View(this), p);
+        }
     }
 
     /** A 16:9 card with the app's banner; the name shows under it while focused. */
@@ -496,22 +508,26 @@ public class MainActivity extends Activity {
             p.setNextFocusLeftId(i == 0 ? p.getId() : pills.get(i - 1).getId());
             p.setNextFocusRightId(i == pills.size() - 1 ? p.getId() : pills.get(i + 1).getId());
             p.setNextFocusUpId(p.getId());
-            p.setNextFocusDownId(d > 0 ? dockCards.get(Math.min(d - 1, d / 2)).getId() : p.getId());
+            p.setNextFocusDownId(d > 0 ? dockCards.get(Math.min(d, dockCols) - 1).getId() : p.getId());
         }
         int topId = pills.get(0).getId();
+        int lastDockRowStart = d == 0 ? 0 : (d - 1) / dockCols * dockCols;
         for (int i = 0; i < d; i++) {
             View c = dockCards.get(i);
-            c.setNextFocusUpId(topId);
-            c.setNextFocusLeftId(i == 0 ? c.getId() : dockCards.get(i - 1).getId());
-            c.setNextFocusRightId(i == d - 1 ? c.getId() : dockCards.get(i + 1).getId());
-            c.setNextFocusDownId(g > 0 ? gridCards.get(Math.min(i, g - 1)).getId() : c.getId());
+            int col = i % dockCols;
+            c.setNextFocusUpId(i < dockCols ? topId : dockCards.get(i - dockCols).getId());
+            c.setNextFocusLeftId(col == 0 ? c.getId() : dockCards.get(i - 1).getId());
+            c.setNextFocusRightId(col == dockCols - 1 || i == d - 1 ? c.getId() : dockCards.get(i + 1).getId());
+            c.setNextFocusDownId(i + dockCols < d ? dockCards.get(i + dockCols).getId()
+                    : i < lastDockRowStart ? dockCards.get(d - 1).getId()
+                    : g > 0 ? gridCards.get(Math.min(col * cols / dockCols, g - 1)).getId() : c.getId());
         }
         int lastRow = (g - 1) / cols;
         for (int j = 0; j < g; j++) {
             View c = gridCards.get(j);
             int r = j / cols, col = j % cols;
             c.setNextFocusUpId(r == 0
-                    ? (d > 0 ? dockCards.get(Math.min(col, d - 1)).getId() : topId)
+                    ? (d > 0 ? dockCards.get(Math.min(lastDockRowStart + col * dockCols / cols, d - 1)).getId() : topId)
                     : gridCards.get(j - cols).getId());
             c.setNextFocusDownId(j + cols < g ? gridCards.get(j + cols).getId()
                     : r < lastRow ? gridCards.get(g - 1).getId() : c.getId());
