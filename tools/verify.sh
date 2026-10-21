@@ -27,8 +27,9 @@ done < <(grep -vE '^\s*(#|$)' "$LIST" | awk '{print $1}')
 crashes=$(tv 'logcat -d -b crash | grep -c "FATAL EXCEPTION"' | tr -d '[:space:]')
 [ "${crashes:-0}" = 0 ] && ok "no crashes in the crash log" || bad "$crashes crashes logged (tools/tv.py 'logcat -d -b crash')"
 
-free=$(tv 'dumpsys meminfo | grep "Free RAM"' | grep -oE '[0-9,]+K' | head -1 | tr -d ',K')
-[ "${free:-0}" -ge 600000 ] && ok "free RAM $((free / 1024)) MB" || bad "free RAM only $((${free:-0} / 1024)) MB: run tools/free-memory.sh"
+# MemAvailable counts memory Android can reclaim, so unlike "Free RAM" it does not read low just because of cache.
+avail=$(tv "grep MemAvailable /proc/meminfo" | grep -oE '[0-9]+' | head -1)
+[ "${avail:-0}" -ge 600000 ] && ok "available RAM $((avail / 1024)) MB" || bad "available RAM only $((${avail:-0} / 1024)) MB: run tools/free-memory.sh"
 
 echo "info  cached-process cap: $(tv 'settings get global activity_manager_constants')"
 exit $fail
