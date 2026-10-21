@@ -93,7 +93,7 @@ public class MainActivity extends Activity {
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Runnable rotateWallpaper = this::nextWallpaper;
     static final long WALLPAPER_INTERVAL_MS = 10 * 60 * 1000;
-    private TextView greeting, clock, ampm, date, title, wifiPill, appsLabel;
+    private TextView greeting, clock, ampm, date, title, inputsPill, wifiPill, appsLabel;
     private int glowColor = 0xFF3A3A3A;
     private ValueAnimator glowAnim;
     private int lastFocusedId = View.NO_ID;
@@ -104,6 +104,12 @@ public class MainActivity extends Activity {
     private final BroadcastReceiver tick = new BroadcastReceiver() {
         @Override public void onReceive(Context c, Intent i) { updateClock(); updateWifi(); }
     };
+    private final TvInputManager.TvInputCallback inputsChanged = new TvInputManager.TvInputCallback() {
+        @Override public void onInputAdded(String id) { updateInputsPill(); }
+        @Override public void onInputRemoved(String id) { updateInputsPill(); }
+        @Override public void onInputUpdated(String id) { updateInputsPill(); }
+    };
+
     private final BroadcastReceiver packages = new BroadcastReceiver() {
         @Override public void onReceive(Context c, Intent i) { buildApps(); }
     };
@@ -131,6 +137,8 @@ public class MainActivity extends Activity {
         pf.addAction(Intent.ACTION_PACKAGE_CHANGED);
         pf.addDataScheme("package");
         registerReceiver(packages, pf);
+        TvInputManager tim = (TvInputManager) getSystemService(TV_INPUT_SERVICE);
+        if (tim != null) tim.registerCallback(inputsChanged, handler);
     }
 
     @Override
@@ -143,6 +151,7 @@ public class MainActivity extends Activity {
         registerReceiver(tick, tf);
         updateClock();
         updateWifi();
+        updateInputsPill();
         View last = lastFocusedId == View.NO_ID ? null : findViewById(lastFocusedId);
         if (last == null && !dockCards.isEmpty()) last = dockCards.get(0);
         if (last != null) last.requestFocus();
@@ -165,6 +174,8 @@ public class MainActivity extends Activity {
     @Override
     protected void onDestroy() {
         unregisterReceiver(packages);
+        TvInputManager tim = (TvInputManager) getSystemService(TV_INPUT_SERVICE);
+        if (tim != null) tim.unregisterCallback(inputsChanged);
         super.onDestroy();
     }
 
@@ -301,13 +312,19 @@ public class MainActivity extends Activity {
         LinearLayout right = new LinearLayout(this);
         right.setGravity(Gravity.CENTER_VERTICAL);
         right.setClipChildren(false);
-        TextView inputs = pill("Inputs", "⇥");
-        inputs.setOnClickListener(v -> showInputs(v));
+        List<TextView> top = new ArrayList<>();
+        // Streaming sticks (Chromecast, Shield) have no inputs or tuner: the Inputs pill hides itself.
+        inputsPill = pill("Inputs", "⇥");
+        inputsPill.setOnClickListener(v -> showInputs(v));
+        inputsPill.setVisibility(hasInputs() ? View.VISIBLE : View.GONE);
+        top.add(inputsPill);
         wifiPill = pill("Wi-Fi", "◉");
         wifiPill.setOnClickListener(v -> launch(new Intent(Settings.ACTION_WIFI_SETTINGS)));
+        top.add(wifiPill);
         TextView settings = pill("Settings", "⚙");
         settings.setOnClickListener(v -> launch(new Intent(Settings.ACTION_SETTINGS)));
-        for (TextView p : new TextView[]{inputs, wifiPill, settings}) {
+        top.add(settings);
+        for (TextView p : top) {
             right.addView(p, llp(-2, dp(30), dp(10), 0, 0, 0));
             pills.add(p);
         }
@@ -491,14 +508,16 @@ public class MainActivity extends Activity {
     /** Explicit D-pad targets: one row per press, ends of rows and of the top bar don't wrap. */
     private void wireFocus() {
         int d = dockCards.size(), g = gridCards.size();
-        for (int i = 0; i < pills.size(); i++) {
-            View p = pills.get(i);
-            p.setNextFocusLeftId(i == 0 ? p.getId() : pills.get(i - 1).getId());
-            p.setNextFocusRightId(i == pills.size() - 1 ? p.getId() : pills.get(i + 1).getId());
+        List<View> shown = new ArrayList<>();
+        for (View p : pills) if (p.getVisibility() == View.VISIBLE) shown.add(p);
+        for (int i = 0; i < shown.size(); i++) {
+            View p = shown.get(i);
+            p.setNextFocusLeftId(i == 0 ? p.getId() : shown.get(i - 1).getId());
+            p.setNextFocusRightId(i == shown.size() - 1 ? p.getId() : shown.get(i + 1).getId());
             p.setNextFocusUpId(p.getId());
             p.setNextFocusDownId(d > 0 ? dockCards.get(Math.min(d - 1, d / 2)).getId() : p.getId());
         }
-        int topId = pills.get(0).getId();
+        int topId = shown.get(0).getId();
         for (int i = 0; i < d; i++) {
             View c = dockCards.get(i);
             c.setNextFocusUpId(topId);
@@ -548,12 +567,7 @@ public class MainActivity extends Activity {
         PopupWindow pw = new PopupWindow(list, dp(200), -2, true);
         List<TextView> rows = new ArrayList<>();
 
-        TvInputManager tim = (TvInputManager) getSystemService(TV_INPUT_SERVICE);
-        List<TvInputInfo> inputs = new ArrayList<>();
-        if (tim != null) for (TvInputInfo t : tim.getTvInputList()) {
-            if (t.isPassthroughInput() && !t.isHidden(this)) inputs.add(t);
-        }
-        Collections.sort(inputs, (x, y) -> inputLabel(x).compareToIgnoreCase(inputLabel(y)));
+        List<TvInputInfo> inputs = passthroughInputs();
         for (TvInputInfo t : inputs) {
             rows.add(inputRow(inputLabel(t), () -> {
                 Intent i = new Intent(Intent.ACTION_VIEW, TvContract.buildChannelUriForPassthroughInput(t.getId()));
@@ -582,6 +596,29 @@ public class MainActivity extends Activity {
         inputsPopup = pw;
         pw.showAsDropDown(anchor, 0, dp(8), Gravity.START);
         rows.get(0).requestFocus();
+    }
+
+    private boolean hasInputs() {
+        return !passthroughInputs().isEmpty() || isInstalled(liveTvPkg) || isInstalled(inputPickerPkg);
+    }
+
+    /** Inputs can register after the launcher starts at boot, so recheck on resume and on changes. */
+    private void updateInputsPill() {
+        int v = hasInputs() ? View.VISIBLE : View.GONE;
+        if (inputsPill.getVisibility() == v) return;
+        inputsPill.setVisibility(v);
+        wireFocus();
+    }
+
+    /** HDMI / AV sources, sorted by name. */
+    private List<TvInputInfo> passthroughInputs() {
+        List<TvInputInfo> inputs = new ArrayList<>();
+        TvInputManager tim = (TvInputManager) getSystemService(TV_INPUT_SERVICE);
+        if (tim != null) for (TvInputInfo t : tim.getTvInputList()) {
+            if (t.isPassthroughInput() && !t.isHidden(this)) inputs.add(t);
+        }
+        Collections.sort(inputs, (x, y) -> inputLabel(x).compareToIgnoreCase(inputLabel(y)));
+        return inputs;
     }
 
     private String inputLabel(TvInputInfo t) {
@@ -826,8 +863,9 @@ public class MainActivity extends Activity {
     @Override
     public boolean dispatchKeyEvent(KeyEvent e) {
         // Menu key on the remote opens the Inputs dropdown.
-        if (e.getKeyCode() == KeyEvent.KEYCODE_MENU && e.getAction() == KeyEvent.ACTION_UP && !pills.isEmpty()) {
-            showInputs(pills.get(0));
+        if (e.getKeyCode() == KeyEvent.KEYCODE_MENU && e.getAction() == KeyEvent.ACTION_UP
+                && inputsPill.getVisibility() == View.VISIBLE) {
+            showInputs(inputsPill);
             return true;
         }
         return super.dispatchKeyEvent(e);

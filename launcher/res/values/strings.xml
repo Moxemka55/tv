@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="button_service_description">Makes remote buttons that the stock home screen used to handle, like YouTube, open their app, and can make the Home button open this home screen.</string>
+</resources>

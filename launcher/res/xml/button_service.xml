@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Key filtering, plus (with take_over_home) which package and class each window change comes
+     from, set at runtime. Never window content. See ButtonService.java. -->
+<accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:accessibilityFlags="flagRequestFilterKeyEvents"
+    android:canRequestFilterKeyEvents="true"
+    android:canRetrieveWindowContent="false"
+    android:description="@string/button_service_description" />

@@ -8,6 +8,8 @@
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <!-- Android 11 only reveals the Wi-Fi name to apps holding location; granted over ADB at install. -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
+    <!-- ButtonService checks whether a window change is another app's activity, for any app. -->
+    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
 
     <uses-feature android:name="android.software.leanback" android:required="false" />
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
@@ -17,11 +19,24 @@
             <action android:name="android.intent.action.MAIN" />
             <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
         </intent>
+        <!-- ButtonService opens mapped apps that only have a phone-style launcher activity. -->
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+        <!-- ButtonService looks up the stock home when take_over_home is on. -->
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.HOME" />
+        </intent>
         <package android:name="com.tcl.tv" />
         <package android:name="com.tcl.suspension" />
+        <package android:name="com.google.android.apps.mediashell" />
     </queries>
 
+    <!-- HomeApplication keeps Google Cast awake; see HomeApplication.java. -->
     <application
+        android:name=".HomeApplication"
         android:label="Home"
         android:icon="@drawable/ic_home"
         android:banner="@drawable/ic_home"
@@ -44,5 +59,31 @@
                 <category android:name="android.intent.category.DEFAULT" />
             </intent-filter>
         </activity>
+
+        <!-- The Assistant button, once Google Assistant is disabled. See AssistActivity.java. -->
+        <activity
+            android:name=".AssistActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:taskAffinity=""
+            android:theme="@android:style/Theme.Translucent.NoTitleBar">
+            <intent-filter>
+                <action android:name="android.intent.action.ASSIST" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
+        </activity>
+
+        <!-- Remote buttons the stock launcher used to handle; turned on by build-and-install.sh. -->
+        <service
+            android:name=".ButtonService"
+            android:label="Home remote buttons"
+            android:exported="true"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data android:name="android.accessibilityservice" android:resource="@xml/button_service" />
+        </service>
     </application>
 </manifest>
