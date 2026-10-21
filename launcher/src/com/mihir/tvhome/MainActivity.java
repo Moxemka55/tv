@@ -3,11 +3,13 @@ package com.mihir.tvhome;
 import android.animation.ArgbEvaluator;
 import android.animation.ValueAnimator;
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.app.SearchManager;
 import android.content.BroadcastReceiver;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.content.IntentFilter;
 import android.content.pm.ActivityInfo;
 import android.content.pm.PackageManager;
@@ -112,6 +114,8 @@ public class MainActivity extends Activity {
         }
     };
     private boolean hasSearch;
+    private AlertDialog settingsDialog;
+    private int settingsPos = -1, clickedPos;
 
     // ---------------------------------------------------------------- lifecycle
 
@@ -123,12 +127,13 @@ public class MainActivity extends Activity {
         hidden.add(getPackageName());
         liveTvPkg = getString(R.string.live_tv_package);
         inputPickerPkg = getString(R.string.input_picker_package);
-        cols = getResources().getInteger(R.integer.columns);
+        cols = getPreferences(MODE_PRIVATE).getInt("columns", getResources().getInteger(R.integer.columns));
         getWindow().getDecorView().setSystemUiVisibility(
                 View.SYSTEM_UI_FLAG_FULLSCREEN | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
                         | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY | View.SYSTEM_UI_FLAG_LAYOUT_STABLE);
         setContentView(buildUi());
         buildApps();
+        if (b != null && b.getInt("settings", -1) >= 0) showSettings(b.getInt("settings"));
 
         IntentFilter pf = new IntentFilter();
         pf.addAction(Intent.ACTION_PACKAGE_ADDED);
@@ -170,6 +175,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onDestroy() {
         unregisterReceiver(packages);
+        if (settingsDialog != null) settingsDialog.dismiss();
         super.onDestroy();
     }
 
@@ -311,7 +317,7 @@ public class MainActivity extends Activity {
         wifiPill = pill("Wi-Fi", "◉");
         wifiPill.setOnClickListener(v -> launch(new Intent(Settings.ACTION_WIFI_SETTINGS)));
         TextView settings = pill("Settings", "⚙");
-        settings.setOnClickListener(v -> launch(new Intent(Settings.ACTION_SETTINGS)));
+        settings.setOnClickListener(v -> showSettings(0));
         List<TextView> top = new ArrayList<>();
         Intent search = searchIntent();
         hasSearch = search != null;
@@ -789,10 +795,59 @@ public class MainActivity extends Activity {
         }
     }
 
-    /** Google TV's search, or null if no enabled app handles it. */
+    /** Google TV's search, or null if no enabled app handles it or it's switched off here. */
     private Intent searchIntent() {
+        return getPreferences(MODE_PRIVATE).getBoolean("search", true) ? systemSearch() : null;
+    }
+
+    private Intent systemSearch() {
         Intent i = new Intent(SearchManager.INTENT_ACTION_GLOBAL_SEARCH);
         return getPackageManager().resolveActivity(i, 0) != null ? i : null;
+    }
+
+    // ---------------------------------------------------------------- settings
+
+    /** TV settings plus the launcher's own options. Changes recreate the activity and reopen this on the same row. */
+    private void showSettings(int pos) {
+        SharedPreferences prefs = getPreferences(MODE_PRIVATE);
+        Intent home = new Intent(Settings.ACTION_HOME_SETTINGS);
+        List<String> labels = new ArrayList<>();
+        List<Runnable> actions = new ArrayList<>();
+        labels.add("TV settings");
+        actions.add(() -> launch(new Intent(Settings.ACTION_SETTINGS)));
+        labels.add("Columns: " + cols);
+        actions.add(() -> change(prefs.edit().putInt("columns", cols >= 8 ? 4 : cols + 1)));
+        if (systemSearch() != null) { // no system search: no pill, nothing to toggle
+            boolean on = prefs.getBoolean("search", true);
+            labels.add("Search button: " + (on ? "On" : "Off"));
+            actions.add(() -> change(prefs.edit().putBoolean("search", !on)));
+        }
+        if (getPackageManager().resolveActivity(home, 0) != null) {
+            labels.add("Default home app…");
+            actions.add(() -> launch(home));
+        }
+        settingsDialog = new AlertDialog.Builder(this, android.R.style.Theme_DeviceDefault_Dialog_Alert)
+                .setTitle("Settings")
+                .setItems(labels.toArray(new String[0]), (d, which) -> {
+                    clickedPos = which;
+                    actions.get(which).run();
+                })
+                .setOnDismissListener(d -> settingsDialog = null)
+                .show();
+        settingsDialog.getListView().setSelection(Math.min(pos, labels.size() - 1));
+    }
+
+    private void change(SharedPreferences.Editor e) {
+        e.apply();
+        settingsPos = clickedPos;
+        recreate();
+    }
+
+    @Override
+    protected void onSaveInstanceState(Bundle out) {
+        super.onSaveInstanceState(out);
+        out.putInt("settings", settingsPos);
+        settingsPos = -1;
     }
 
     private boolean isInstalled(String pkg) {
