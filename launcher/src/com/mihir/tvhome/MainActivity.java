@@ -12,7 +12,6 @@ import android.content.pm.ActivityInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
 import android.graphics.Bitmap;
-import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Outline;
@@ -24,9 +23,6 @@ import android.media.tv.TvInputInfo;
 import android.media.tv.TvInputManager;
 import android.net.wifi.WifiManager;
 import android.os.Bundle;
-import android.os.Handler;
-import android.os.Looper;
-import android.os.SystemClock;
 import android.provider.Settings;
 import android.util.TypedValue;
 import android.view.Gravity;
@@ -85,14 +81,10 @@ public class MainActivity extends Activity {
     private FrameLayout hero;
     private LinearLayout grid;
     private View glow;
-    private ImageView wallBack, wallFront;
-    private View gridShade;
-    private String[] wallpapers = new String[0];
-    private int wallIndex = -1;
-    private long wallChangedAt;
-    private final Handler handler = new Handler(Looper.getMainLooper());
-    private final Runnable rotateWallpaper = this::nextWallpaper;
-    static final long WALLPAPER_INTERVAL_MS = 10 * 60 * 1000;
+    private View gridShade, backdrop;
+    // One drawable per layer, recoloured in place so focus changes allocate nothing.
+    private final GradientDrawable backdropDrawable = new GradientDrawable();
+    private final GradientDrawable glowDrawable = new GradientDrawable();
     private TextView greeting, clock, ampm, date, title, wifiPill, appsLabel;
     private int glowColor = 0xFF3A3A3A;
     private ValueAnimator glowAnim;
@@ -100,6 +92,13 @@ public class MainActivity extends Activity {
     private boolean firstShow = true;
     private int packageSeq;
     private PopupWindow inputsPopup;
+    // Rearranging: all launchable apps, their display order (dock first), and the tile being moved.
+    private Map<String, App> allApps = new HashMap<>();
+    private List<String> orderedPkgs = new ArrayList<>();
+    private int dockN;
+    private String editPkg;
+    private android.animation.ObjectAnimator wiggle;
+    private float prevFocusX = -1, prevFocusY = -1;
 
     private final BroadcastReceiver tick = new BroadcastReceiver() {
         @Override public void onReceive(Context c, Intent i) { updateClock(); updateWifi(); }
@@ -149,16 +148,14 @@ public class MainActivity extends Activity {
         // Catch installs/removals that happened while another app was in front.
         if (getPackageManager().getChangedPackages(packageSeq) != null) buildApps();
         if (firstShow) { firstShow = false; playEntrance(); }
-        // New photo on return if the current one has been up for the full interval.
-        if (wallIndex < 0 || SystemClock.elapsedRealtime() - wallChangedAt >= WALLPAPER_INTERVAL_MS) nextWallpaper();
-        else scheduleWallpaper(WALLPAPER_INTERVAL_MS - (SystemClock.elapsedRealtime() - wallChangedAt));
     }
 
     @Override
     protected void onPause() {
         super.onPause();
-        handler.removeCallbacks(rotateWallpaper);
         unregisterReceiver(tick);
+        endEdit();
+        getSharedPreferences("home", MODE_PRIVATE).edit().putInt("glow", glowColor).apply();
         if (inputsPopup != null) inputsPopup.dismiss();
     }
 
@@ -189,23 +186,19 @@ public class MainActivity extends Activity {
         FrameLayout root = new FrameLayout(this);
         root.setBackgroundColor(Color.BLACK);
 
-        // Wallpaper: two stacked layers so a new photo can crossfade in over the old one.
-        wallBack = wallpaperLayer();
-        wallFront = wallpaperLayer();
-        root.addView(wallBack, new FrameLayout.LayoutParams(-1, -1));
-        root.addView(wallFront, new FrameLayout.LayoutParams(-1, -1));
-        // Scrim: darker at the top (clock, pills) and bottom (dock) so text stays readable.
-        View scrim = new View(this);
-        scrim.setBackground(new GradientDrawable(GradientDrawable.Orientation.TOP_BOTTOM,
-                new int[]{0xB3000000, 0x40000000, 0x26000000, 0x8C000000, 0xE6000000}));
-        root.addView(scrim, new FrameLayout.LayoutParams(-1, -1));
+        // Backdrop: a diagonal gradient from near-black to the focused app's colour.
+        backdrop = new View(this);
+        backdropDrawable.setOrientation(GradientDrawable.Orientation.TL_BR);
+        backdrop.setBackground(backdropDrawable);
+        root.addView(backdrop, new FrameLayout.LayoutParams(-1, -1));
+        // Film grain: a tiny tiled noise bitmap breaks up gradient banding and adds depth.
+        View grain = new View(this);
+        grain.setBackground(grainDrawable());
+        root.addView(grain, new FrameLayout.LayoutParams(-1, -1));
         gridShade = new View(this);
-        gridShade.setBackgroundColor(0xB3000000);
+        gridShade.setBackgroundColor(0x80000000);
         gridShade.setAlpha(0f);
         root.addView(gridShade, new FrameLayout.LayoutParams(-1, -1));
-        try {
-            wallpapers = getAssets().list("wallpapers");
-        } catch (java.io.IOException ignored) { }
 
         glow = new View(this);
         root.addView(glow, new FrameLayout.LayoutParams(-1, -1));
@@ -301,40 +294,60 @@ public class MainActivity extends Activity {
         LinearLayout right = new LinearLayout(this);
         right.setGravity(Gravity.CENTER_VERTICAL);
         right.setClipChildren(false);
-        TextView inputs = pill("Inputs", "⇥");
+        TextView inputs = pill("Inputs", R.drawable.ic_input);
         inputs.setOnClickListener(v -> showInputs(v));
-        wifiPill = pill("Wi-Fi", "◉");
-        wifiPill.setOnClickListener(v -> launch(new Intent(Settings.ACTION_WIFI_SETTINGS)));
-        TextView settings = pill("Settings", "⚙");
-        settings.setOnClickListener(v -> launch(new Intent(Settings.ACTION_SETTINGS)));
+        wifiPill = pill("Wi-Fi", R.drawable.ic_wifi);
+        wifiPill.setOnClickListener(v -> showNetwork(v));
+        TextView settings = pill("Settings", R.drawable.ic_settings);
+        settings.setOnClickListener(v -> showSettings(v));
         for (TextView p : new TextView[]{inputs, wifiPill, settings}) {
-            right.addView(p, llp(-2, dp(30), dp(10), 0, 0, 0));
+            right.addView(p, llp(-2, dp(36), dp(12), 0, 0, 0));
             pills.add(p);
         }
         header.addView(right, new FrameLayout.LayoutParams(-2, -2, Gravity.END | Gravity.TOP));
         return header;
     }
 
-    private TextView pill(String label, String glyph) {
-        TextView p = text(11, "sans-serif-medium", 0xE6FFFFFF);
-        p.setText(glyph + "  " + label);
+    /** Frosted-glass pill with a vector icon; the icon tints with the text on focus. */
+    private TextView pill(String label, int iconRes) {
+        TextView p = text(12, "sans-serif-medium", 0xE6FFFFFF);
+        p.setText(label);
+        p.setSingleLine(true);
+        p.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        p.setMaxWidth(dp(300));
         p.setGravity(Gravity.CENTER);
-        p.setPadding(dp(14), 0, dp(14), 0);
+        p.setPadding(dp(16), 0, dp(18), 0);
+        p.setCompoundDrawablePadding(dp(8));
         p.setFocusable(true);
         p.setId(View.generateViewId());
+        setPillIcon(p, iconRes, 0xE6FFFFFF);
         GradientDrawable bg = new GradientDrawable();
-        bg.setCornerRadius(dp(15));
-        bg.setColor(0x66000000);
-        bg.setStroke(dp(1), 0x33FFFFFF);
+        bg.setCornerRadius(dp(18));
+        bg.setColor(0x2EFFFFFF);
+        bg.setStroke(dp(1), 0x4DFFFFFF);
         p.setBackground(bg);
+        java.util.function.Consumer<Boolean> look = on -> {
+            int ink = on ? 0xFF111111 : 0xE6FFFFFF;
+            bg.setColor(on ? 0xF2FFFFFF : 0x2EFFFFFF);
+            p.setTextColor(ink);
+            Drawable icon = p.getCompoundDrawablesRelative()[0];
+            if (icon != null) icon.setTint(ink);
+        };
+        p.setTag(look);
         p.setOnFocusChangeListener((v, has) -> {
-            bg.setColor(has ? 0xF2FFFFFF : 0x66000000);
-            ((TextView) v).setTextColor(has ? 0xFF111111 : 0xE6FFFFFF);
-            v.animate().scaleX(has ? 1.08f : 1f).scaleY(has ? 1.08f : 1f)
+            look.accept(has);
+            v.animate().scaleX(has ? 1.07f : 1f).scaleY(has ? 1.07f : 1f)
                     .setInterpolator(new OvershootInterpolator(2f)).setDuration(220).start();
-            if (has) { lastFocusedId = v.getId(); scroll.smoothScrollTo(0, 0); fadeGlow(1f); }
+            if (has) { scroll.smoothScrollTo(0, 0); fadeGlow(1f); }
         });
         return p;
+    }
+
+    private void setPillIcon(TextView p, int iconRes, int tint) {
+        Drawable d = getDrawable(iconRes).mutate();
+        d.setBounds(0, 0, dp(16), dp(16));
+        d.setTint(tint);
+        p.setCompoundDrawablesRelative(d, null, null, null);
     }
 
     // ---------------------------------------------------------------- apps
@@ -359,11 +372,29 @@ public class MainActivity extends Activity {
             a.color = sampleColor(a.pkg, a.art);
             byPkg.put(a.pkg, a);
         }
+        allApps = byPkg;
+        relayout();
+    }
 
-        List<App> dock = new ArrayList<>();
-        for (String p : dockApps) if (byPkg.containsKey(p)) dock.add(byPkg.remove(p));
-        List<App> rest = new ArrayList<>(byPkg.values());
-        Collections.sort(rest, (x, y) -> x.label.compareToIgnoreCase(y.label));
+    /** Lays out the dock and grid from the saved order (or config + alphabetical), without re-scanning apps. */
+    private void relayout() {
+        Map<String, App> byPkg = new HashMap<>(allApps);
+        List<String> configDock = new ArrayList<>();
+        for (String p : dockApps) if (byPkg.containsKey(p)) configDock.add(p);
+        dockN = configDock.size();
+        List<String> alpha = new ArrayList<>(byPkg.keySet());
+        alpha.removeAll(configDock);
+        Collections.sort(alpha, (x, y) -> byPkg.get(x).label.compareToIgnoreCase(byPkg.get(y).label));
+        List<String> order = new ArrayList<>();
+        for (String p : getSharedPreferences("home", MODE_PRIVATE).getString("order", "").split(",")) {
+            if (byPkg.containsKey(p) && !order.contains(p)) order.add(p);
+        }
+        if (order.isEmpty()) order.addAll(configDock);
+        for (String p : alpha) if (!order.contains(p)) order.add(p);   // new installs go last
+        for (String p : configDock) if (!order.contains(p)) order.add(p);
+        orderedPkgs = order;
+        List<App> dock = new ArrayList<>(), rest = new ArrayList<>();
+        for (int i = 0; i < order.size(); i++) (i < dockN ? dock : rest).add(byPkg.get(order.get(i)));
 
         dockRow.removeAllViews();
         grid.removeAllViews();
@@ -400,9 +431,91 @@ public class MainActivity extends Activity {
         wireFocus();
 
         if (!dock.isEmpty()) { title.setText(dock.get(0).label); setGlow(dock.get(0).color); }
+        if (editPkg != null) {
+            View c = cardFor(editPkg);
+            if (c != null) { c.requestFocus(); startWiggle(c); }
+            return;
+        }
         View last = lastFocusedId == View.NO_ID ? null : findViewById(lastFocusedId);
         if (last != null) last.requestFocus();
         else if (!dockCards.isEmpty()) dockCards.get(0).requestFocus();
+    }
+
+    // ---------------------------------------------------------------- rearranging
+
+    private View cardFor(String pkg) {
+        for (View c : dockCards) if (((App) c.getTag()).pkg.equals(pkg)) return c;
+        for (View c : gridCards) if (((App) c.getTag()).pkg.equals(pkg)) return c;
+        return null;
+    }
+
+    private void startEdit(String pkg) {
+        editPkg = pkg;
+        View c = cardFor(pkg);
+        if (c != null) { c.setPressed(false); startWiggle(c); }
+        if (inputsPopup != null) inputsPopup.dismiss();
+        android.widget.Toast.makeText(this, "Move with the arrow keys \u00b7 press OK to drop", android.widget.Toast.LENGTH_SHORT).show();
+    }
+
+    private void endEdit() {
+        editPkg = null;
+        stopWiggle();
+    }
+
+    /** Only the picked-up tile animates, and only while moving. */
+    private void startWiggle(View v) {
+        stopWiggle();
+        wiggle = android.animation.ObjectAnimator.ofFloat(v, View.ROTATION, -1.8f, 1.8f);
+        wiggle.setDuration(130);
+        wiggle.setRepeatCount(android.animation.ValueAnimator.INFINITE);
+        wiggle.setRepeatMode(android.animation.ValueAnimator.REVERSE);
+        wiggle.start();
+    }
+
+    private void stopWiggle() {
+        if (wiggle == null) return;
+        View v = (View) ((android.animation.ObjectAnimator) wiggle).getTarget();
+        wiggle.cancel();
+        wiggle = null;
+        if (v != null) v.setRotation(0f);
+    }
+
+    /** Swaps the picked-up tile with its neighbour in the pressed direction (dock row, then the grid rows). */
+    private void moveEdit(int key) {
+        int i = orderedPkgs.indexOf(editPkg), n = orderedPkgs.size(), g = n - dockN, j = -1;
+        switch (key) {
+            case android.view.KeyEvent.KEYCODE_DPAD_LEFT: j = i - 1; break;
+            case android.view.KeyEvent.KEYCODE_DPAD_RIGHT: j = i + 1; break;
+            case android.view.KeyEvent.KEYCODE_DPAD_UP:
+                j = i < dockN ? -1 : (i - dockN < cols ? Math.min(i - dockN, dockN - 1) : i - cols);
+                break;
+            case android.view.KeyEvent.KEYCODE_DPAD_DOWN:
+                j = i < dockN ? (g > 0 ? dockN + Math.min(i, g - 1) : -1) : i + cols;
+                break;
+            default: break;
+        }
+        if (i < 0 || j < 0 || j >= n || j == i) return;
+        Collections.swap(orderedPkgs, i, j);
+        getSharedPreferences("home", MODE_PRIVATE).edit().putString("order", android.text.TextUtils.join(",", orderedPkgs)).apply();
+        relayout();
+    }
+
+    /** While a tile is picked up, the arrows move it and OK/Back drops it; returns true if the key was handled. */
+    private boolean handleEditKey(android.view.KeyEvent e) {
+        int k = e.getKeyCode();
+        boolean arrow = k == android.view.KeyEvent.KEYCODE_DPAD_LEFT || k == android.view.KeyEvent.KEYCODE_DPAD_RIGHT
+                || k == android.view.KeyEvent.KEYCODE_DPAD_UP || k == android.view.KeyEvent.KEYCODE_DPAD_DOWN;
+        if (arrow) {
+            if (e.getAction() == android.view.KeyEvent.ACTION_DOWN) moveEdit(k);
+            return true;
+        }
+        if (k == android.view.KeyEvent.KEYCODE_DPAD_CENTER || k == android.view.KeyEvent.KEYCODE_ENTER
+                || k == android.view.KeyEvent.KEYCODE_BACK) {
+            // The held press that started the move repeats; only a fresh press drops the tile.
+            if (e.getAction() == android.view.KeyEvent.ACTION_DOWN && e.getRepeatCount() == 0) endEdit();
+            return true;
+        }
+        return false;
     }
 
     /** A 16:9 card with the app's banner; the name shows under it while focused. */
@@ -462,9 +575,25 @@ public class MainActivity extends Activity {
                 .addCategory(Intent.CATEGORY_LEANBACK_LAUNCHER)
                 .setComponent(app.component)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)));
+        card.setLongClickable(true);
+        card.setOnLongClickListener(v -> { startEdit(app.pkg); return true; });
         card.setOnFocusChangeListener((v, has) -> {
             float s = has ? (inDock ? 1.12f : 1.1f) : 1f;
-            v.animate().scaleX(s).scaleY(s).translationZ(has ? dp(14) : 0)
+            if (has) {
+                // A slight tilt as focus arrives, leaning the way you moved, then settles flat.
+                int[] loc = new int[2];
+                v.getLocationOnScreen(loc);
+                float cx = loc[0] + v.getWidth() / 2f, cy = loc[1] + v.getHeight() / 2f;
+                if (prevFocusX >= 0 && editPkg == null) {
+                    v.setCameraDistance(getResources().getDisplayMetrics().density * 6000f);
+                    float dx = cx - prevFocusX, dy = cy - prevFocusY;
+                    v.setRotationY(Math.abs(dx) > 20 ? (dx > 0 ? -5f : 5f) : 0f);
+                    v.setRotationX(Math.abs(dy) > 20 ? (dy > 0 ? 4f : -4f) : 0f);
+                }
+                prevFocusX = cx;
+                prevFocusY = cy;
+            }
+            v.animate().scaleX(s).scaleY(s).rotationX(0f).rotationY(0f).translationZ(has ? dp(14) : 0)
                     .setInterpolator(has ? new OvershootInterpolator(1.8f) : new DecelerateInterpolator())
                     .setDuration(has ? 320 : 200).start();
             shine.animate().alpha(has ? 1f : 0f).setDuration(160).start();
@@ -535,53 +664,163 @@ public class MainActivity extends Activity {
 
     // ---------------------------------------------------------------- inputs
 
-    private void showInputs(View anchor) {
-        LinearLayout list = new LinearLayout(this);
-        list.setOrientation(LinearLayout.VERTICAL);
-        list.setPadding(dp(8), dp(8), dp(8), dp(8));
+    private static final int GREEN = 0xFF34C759;
+
+    /** Shows `content` as a rounded dropdown under `anchor`; the anchor pill stays highlighted while it is open. */
+    private PopupWindow dropdown(View content, int widthDp, View anchor, int gravity) {
+        PopupWindow pw = new PopupWindow(content, dp(widthDp), -2, true);
+        pw.setOutsideTouchable(true);
+        pw.setElevation(dp(16));
+        setPillActive(anchor, true);
+        pw.setOnDismissListener(() -> { inputsPopup = null; setPillActive(anchor, false); anchor.requestFocus(); });
+        inputsPopup = pw;
+        pw.showAsDropDown(anchor, 0, dp(8), gravity);
+        return pw;
+    }
+
+    @SuppressWarnings("unchecked")
+    private void setPillActive(View pill, boolean on) {
+        if (pill.getTag() instanceof java.util.function.Consumer) ((java.util.function.Consumer<Boolean>) pill.getTag()).accept(on);
+    }
+
+    private LinearLayout panel() {
+        LinearLayout l = new LinearLayout(this);
+        l.setOrientation(LinearLayout.VERTICAL);
+        l.setPadding(dp(8), dp(8), dp(8), dp(8));
         GradientDrawable bg = new GradientDrawable();
-        bg.setCornerRadius(dp(16));
-        bg.setColor(0xF02A2A2E);
+        bg.setCornerRadius(dp(18));
+        bg.setColor(0xF21E1E22);
         bg.setStroke(dp(1), 0x26FFFFFF);
-        list.setBackground(bg);
+        l.setBackground(bg);
+        return l;
+    }
 
-        PopupWindow pw = new PopupWindow(list, dp(200), -2, true);
-        List<TextView> rows = new ArrayList<>();
+    private View divider() {
+        View v = new View(this);
+        v.setBackgroundColor(0x1FFFFFFF);
+        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1, dp(1));
+        p.setMargins(dp(10), dp(6), dp(10), dp(6));
+        v.setLayoutParams(p);
+        return v;
+    }
 
-        TvInputManager tim = (TvInputManager) getSystemService(TV_INPUT_SERVICE);
-        List<TvInputInfo> inputs = new ArrayList<>();
-        if (tim != null) for (TvInputInfo t : tim.getTvInputList()) {
-            if (t.isPassthroughInput() && !t.isHidden(this)) inputs.add(t);
-        }
-        Collections.sort(inputs, (x, y) -> inputLabel(x).compareToIgnoreCase(inputLabel(y)));
-        for (TvInputInfo t : inputs) {
-            rows.add(inputRow(inputLabel(t), () -> {
-                Intent i = new Intent(Intent.ACTION_VIEW, TvContract.buildChannelUriForPassthroughInput(t.getId()));
-                i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-                if (!launch(i)) openPackage(inputPickerPkg);
-            }));
-        }
-        if (isInstalled(liveTvPkg)) rows.add(inputRow("Live TV", () -> openPackage(liveTvPkg)));
-        if (inputs.isEmpty() && isInstalled(inputPickerPkg)) rows.add(inputRow("All sources…", () -> openPackage(inputPickerPkg)));
+    /** Focusable dropdown row: icon, label and (optionally) a green "Connected" status on the right. */
+    private LinearLayout menuRow(int iconRes, String label, boolean connected, Runnable action) {
+        LinearLayout r = new LinearLayout(this);
+        r.setGravity(Gravity.CENTER_VERTICAL);
+        r.setPadding(dp(12), 0, dp(14), 0);
+        r.setFocusable(true);
+        r.setId(View.generateViewId());
+        r.setTag(action);
+        GradientDrawable bg = new GradientDrawable();
+        bg.setCornerRadius(dp(12));
+        bg.setColor(Color.TRANSPARENT);
+        r.setBackground(bg);
 
-        if (rows.isEmpty()) rows.add(inputRow("Settings", () -> launch(new Intent(Settings.ACTION_SETTINGS))));
-        for (TextView r : rows) {
-            r.setOnClickListener(v -> { pw.dismiss(); ((Runnable) v.getTag()).run(); });
-            list.addView(r, new LinearLayout.LayoutParams(-1, dp(36)));
+        ImageView icon = new ImageView(this);
+        Drawable d = getDrawable(iconRes).mutate();
+        d.setTint(Color.WHITE);
+        icon.setImageDrawable(d);
+        r.addView(icon, new LinearLayout.LayoutParams(dp(18), dp(18)));
+
+        TextView t = text(13, "sans-serif-medium", Color.WHITE);
+        t.setText(label);
+        t.setSingleLine(true);
+        LinearLayout.LayoutParams tp = new LinearLayout.LayoutParams(0, -2, 1f);
+        tp.setMargins(dp(12), 0, dp(8), 0);
+        r.addView(t, tp);
+
+        TextView status = null;
+        if (connected) {
+            View dot = new View(this);
+            GradientDrawable dd = new GradientDrawable();
+            dd.setShape(GradientDrawable.OVAL);
+            dd.setColor(GREEN);
+            dot.setBackground(dd);
+            LinearLayout.LayoutParams dp7 = new LinearLayout.LayoutParams(dp(6), dp(6));
+            dp7.setMargins(0, 0, dp(6), 0);
+            r.addView(dot, dp7);
+            status = text(10, "sans-serif", 0x80FFFFFF);
+            status.setText("Connected");
+            r.addView(status);
         }
+        final TextView st = status;
+        r.setOnFocusChangeListener((v, has) -> {
+            bg.setColor(has ? 0xF2FFFFFF : Color.TRANSPARENT);
+            d.setTint(has ? 0xFF111111 : Color.WHITE);
+            icon.invalidate();
+            t.setTextColor(has ? 0xFF111111 : Color.WHITE);
+            if (st != null) st.setTextColor(has ? 0x99000000 : 0x80FFFFFF);
+        });
+        return r;
+    }
+
+    private void addRows(LinearLayout list, List<View> rows, PopupWindow[] pw) {
+        for (View r : rows) {
+            r.setOnClickListener(v -> { pw[0].dismiss(); ((Runnable) v.getTag()).run(); });
+            list.addView(r, new LinearLayout.LayoutParams(-1, dp(42)));
+        }
+    }
+
+    private void linkFocus(List<View> rows) {
         for (int i = 0; i < rows.size(); i++) {
-            TextView r = rows.get(i);
+            View r = rows.get(i);
             r.setNextFocusUpId(rows.get(Math.max(0, i - 1)).getId());
             r.setNextFocusDownId(rows.get(Math.min(rows.size() - 1, i + 1)).getId());
             r.setNextFocusLeftId(r.getId());
             r.setNextFocusRightId(r.getId());
         }
-        pw.setOutsideTouchable(true);
-        pw.setElevation(dp(16));
-        pw.setOnDismissListener(() -> { inputsPopup = null; anchor.requestFocus(); });
-        inputsPopup = pw;
-        pw.showAsDropDown(anchor, 0, dp(8), Gravity.START);
+    }
+
+    private void showInputs(View anchor) {
+        LinearLayout list = panel();
+        PopupWindow[] pw = new PopupWindow[1];
+        TvInputManager tim = (TvInputManager) getSystemService(TV_INPUT_SERVICE);
+        List<TvInputInfo> hdmi = new ArrayList<>(), av = new ArrayList<>();
+        if (tim != null) for (TvInputInfo t : tim.getTvInputList()) {
+            if (!t.isPassthroughInput() || t.isHidden(this)) continue;
+            (t.getType() == TvInputInfo.TYPE_HDMI ? hdmi : av).add(t);
+        }
+        Collections.sort(hdmi, (x, y) -> inputLabel(x).compareToIgnoreCase(inputLabel(y)));
+        Collections.sort(av, (x, y) -> inputLabel(x).compareToIgnoreCase(inputLabel(y)));
+
+        // Groups as in Apple-style menus: HDMI, then AV, then Live TV, with a divider between groups.
+        List<List<View>> groups = new ArrayList<>();
+        groups.add(inputRows(hdmi, R.drawable.ic_hdmi, tim));
+        groups.add(inputRows(av, R.drawable.ic_input, tim));
+        if (isInstalled(liveTvPkg)) groups.add(Collections.singletonList(
+                (View) menuRow(R.drawable.ic_tv, "Live TV", false, () -> openPackage(liveTvPkg))));
+        List<View> rows = new ArrayList<>();
+        for (List<View> g : groups) {
+            if (g.isEmpty()) continue;
+            if (!rows.isEmpty()) list.addView(divider());
+            addRows(list, g, pw);
+            rows.addAll(g);
+        }
+        if (rows.isEmpty()) {
+            List<View> fallback = new ArrayList<>();
+            fallback.add(isInstalled(inputPickerPkg)
+                    ? menuRow(R.drawable.ic_input, "All sources…", false, () -> openPackage(inputPickerPkg))
+                    : menuRow(R.drawable.ic_settings, "Settings", false, () -> launch(new Intent(Settings.ACTION_SETTINGS))));
+            addRows(list, fallback, pw);
+            rows.addAll(fallback);
+        }
+        linkFocus(rows);
+        pw[0] = dropdown(list, 250, anchor, Gravity.START);
         rows.get(0).requestFocus();
+    }
+
+    private List<View> inputRows(List<TvInputInfo> inputs, int icon, TvInputManager tim) {
+        List<View> rows = new ArrayList<>();
+        for (TvInputInfo t : inputs) {
+            boolean connected = tim != null && tim.getInputState(t.getId()) == TvInputManager.INPUT_STATE_CONNECTED;
+            rows.add(menuRow(icon, inputLabel(t), connected, () -> {
+                Intent i = new Intent(Intent.ACTION_VIEW, TvContract.buildChannelUriForPassthroughInput(t.getId()));
+                i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+                if (!launch(i)) openPackage(inputPickerPkg);
+            }));
+        }
+        return rows;
     }
 
     private String inputLabel(TvInputInfo t) {
@@ -590,23 +829,167 @@ public class MainActivity extends Activity {
         return String.valueOf(c);
     }
 
-    private TextView inputRow(String label, Runnable action) {
-        TextView r = text(13, "sans-serif", Color.WHITE);
-        r.setText(label);
-        r.setTag(action);
-        r.setId(View.generateViewId());
-        r.setGravity(Gravity.CENTER_VERTICAL);
-        r.setPadding(dp(14), 0, dp(14), 0);
-        r.setFocusable(true);
-        GradientDrawable bg = new GradientDrawable();
-        bg.setCornerRadius(dp(10));
-        bg.setColor(Color.TRANSPARENT);
-        r.setBackground(bg);
-        r.setOnFocusChangeListener((v, has) -> {
-            bg.setColor(has ? 0xF2FFFFFF : Color.TRANSPARENT);
-            r.setTextColor(has ? 0xFF111111 : Color.WHITE);
+    // ---------------------------------------------------------------- settings dropdown
+
+    /** Shortcuts to the settings pages people actually reach for; each falls back to the main Settings app. */
+    private void showSettings(View anchor) {
+        LinearLayout list = panel();
+        PopupWindow[] pw = new PopupWindow[1];
+        List<View> rows = new ArrayList<>();
+        rows.add(settingRow(R.drawable.ic_wifi, "Network & Internet", Settings.ACTION_WIFI_SETTINGS));
+        rows.add(settingRow(R.drawable.ic_tv, "Picture & display", Settings.ACTION_DISPLAY_SETTINGS));
+        rows.add(settingRow(R.drawable.ic_sound, "Sound", Settings.ACTION_SOUND_SETTINGS));
+        rows.add(settingRow(R.drawable.ic_bluetooth, "Remotes & accessories", Settings.ACTION_BLUETOOTH_SETTINGS));
+        rows.add(settingRow(R.drawable.ic_apps, "Apps", Settings.ACTION_APPLICATION_SETTINGS));
+        rows.add(settingRow(R.drawable.ic_accessibility, "Accessibility", Settings.ACTION_ACCESSIBILITY_SETTINGS));
+        addRows(list, rows, pw);
+        list.addView(divider());
+        List<View> more = new ArrayList<>();
+        more.add(settingRow(R.drawable.ic_settings, "All settings", Settings.ACTION_SETTINGS));
+        addRows(list, more, pw);
+        rows.addAll(more);
+        list.addView(divider());
+        // Philips' own restart screen (exported, no permission needed); it asks for confirmation itself.
+        List<View> power = new ArrayList<>();
+        power.add(menuRow(R.drawable.ic_restart, "Restart", false, () -> launch(new Intent("org.droidtv.intent.action.CONFIRM_REBOOT")
+                .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))));
+        power.add(menuRow(R.drawable.ic_power, "Shut down", false, () -> {
+            PowerService svc = PowerService.get();
+            if (svc != null) { svc.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_POWER_DIALOG); return; }
+            // Not enabled yet: send the user to Accessibility settings to switch on "Home power menu".
+            android.widget.Toast.makeText(this, "Turn on \"Home power menu\" in Accessibility to use Shut down", android.widget.Toast.LENGTH_LONG).show();
+            launch(new Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS));
+        }));
+        addRows(list, power, pw);
+        rows.addAll(power);
+        linkFocus(rows);
+        pw[0] = dropdown(list, 270, anchor, Gravity.END);
+        rows.get(0).requestFocus();
+    }
+
+    private View settingRow(int icon, String label, String action) {
+        return menuRow(icon, label, false, () -> {
+            Intent i = new Intent(action);
+            if (!launch(i)) launch(new Intent(Settings.ACTION_SETTINGS));
         });
-        return r;
+    }
+
+    // ---------------------------------------------------------------- network dropdown
+
+    /** SSID (or Ethernet) with live download/upload speed, link speed and this TV's IP address. */
+    private void showNetwork(View anchor) {
+        LinearLayout list = panel();
+        PopupWindow[] pw = new PopupWindow[1];
+        String name = "Offline", ip = "\u2014";
+        int icon = R.drawable.ic_wifi, linkMbps = 0;
+        boolean online = false;
+        try {
+            android.net.ConnectivityManager cm = (android.net.ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
+            android.net.Network net = cm == null ? null : cm.getActiveNetwork();
+            android.net.NetworkCapabilities caps = net == null ? null : cm.getNetworkCapabilities(net);
+            if (caps != null) {
+                online = true;
+                if (caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_ETHERNET)) {
+                    name = "Ethernet";
+                    icon = R.drawable.ic_ethernet;
+                } else {
+                    name = "Wi-Fi";
+                    WifiManager wm = (WifiManager) getApplicationContext().getSystemService(WIFI_SERVICE);
+                    if (wm != null && wm.getConnectionInfo() != null) {
+                        String s = wm.getConnectionInfo().getSSID();
+                        if (s != null && !s.contains("unknown ssid")) name = s.replace("\"", "");
+                        linkMbps = wm.getConnectionInfo().getTxLinkSpeedMbps();
+                        if (linkMbps <= 0) linkMbps = wm.getConnectionInfo().getLinkSpeed();
+                    }
+                }
+                android.net.LinkProperties lp = cm.getLinkProperties(net);
+                if (lp != null) for (android.net.LinkAddress a : lp.getLinkAddresses()) {
+                    java.net.InetAddress ad = a.getAddress();
+                    if (ad instanceof java.net.Inet4Address && !ad.isLoopbackAddress()) { ip = ad.getHostAddress(); break; }
+                }
+            }
+        } catch (SecurityException ignored) { }
+
+        // Header: network name with a green "Connected" status, not focusable.
+        LinearLayout head = new LinearLayout(this);
+        head.setGravity(Gravity.CENTER_VERTICAL);
+        head.setPadding(dp(12), dp(6), dp(14), dp(6));
+        ImageView hi = new ImageView(this);
+        Drawable hd = getDrawable(icon).mutate();
+        hd.setTint(Color.WHITE);
+        hi.setImageDrawable(hd);
+        head.addView(hi, new LinearLayout.LayoutParams(dp(20), dp(20)));
+        TextView ssid = text(15, "sans-serif-medium", Color.WHITE);
+        ssid.setText(name);
+        ssid.setSingleLine(true);
+        ssid.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        LinearLayout.LayoutParams sp = new LinearLayout.LayoutParams(0, -2, 1f);
+        sp.setMargins(dp(12), 0, dp(10), 0);
+        head.addView(ssid, sp);
+        View dot = new View(this);
+        GradientDrawable dd = new GradientDrawable();
+        dd.setShape(GradientDrawable.OVAL);
+        dd.setColor(online ? GREEN : 0xFFFF453A);
+        dot.setBackground(dd);
+        LinearLayout.LayoutParams dpar = new LinearLayout.LayoutParams(dp(6), dp(6));
+        dpar.setMargins(0, 0, dp(6), 0);
+        head.addView(dot, dpar);
+        TextView st = text(10, "sans-serif", 0x80FFFFFF);
+        st.setText(online ? "Connected" : "Offline");
+        head.addView(st);
+        list.addView(head);
+        list.addView(divider());
+
+        TextView down = statRow(list, "Download");
+        TextView up = statRow(list, "Upload");
+        if (linkMbps > 0) statRow(list, "Link speed").setText(linkMbps + " Mbps");
+        statRow(list, "IP address").setText(ip);
+        list.addView(divider());
+
+        List<View> rows = new ArrayList<>();
+        rows.add(menuRow(R.drawable.ic_settings, "Network settings", false, () -> launch(new Intent(Settings.ACTION_WIFI_SETTINGS))));
+        addRows(list, rows, pw);
+        linkFocus(rows);
+        pw[0] = dropdown(list, 300, anchor, Gravity.END);
+        rows.get(0).requestFocus();
+
+        // Live throughput, sampled once a second while the dropdown is open.
+        final long[] last = {android.net.TrafficStats.getTotalRxBytes(), android.net.TrafficStats.getTotalTxBytes(),
+                android.os.SystemClock.elapsedRealtime()};
+        down.setText(mbps(0));
+        up.setText(mbps(0));
+        list.postDelayed(new Runnable() {
+            @Override public void run() {
+                if (!pw[0].isShowing()) return;
+                long rx = android.net.TrafficStats.getTotalRxBytes(), tx = android.net.TrafficStats.getTotalTxBytes();
+                long now = android.os.SystemClock.elapsedRealtime();
+                double dt = Math.max(0.2, (now - last[2]) / 1000.0);
+                down.setText(mbps((rx - last[0]) * 8 / 1e6 / dt));
+                up.setText(mbps((tx - last[1]) * 8 / 1e6 / dt));
+                last[0] = rx; last[1] = tx; last[2] = now;
+                list.postDelayed(this, 1000);
+            }
+        }, 1000);
+    }
+
+    private static String mbps(double v) {
+        if (v < 0) v = 0;
+        return String.format(Locale.US, v >= 100 ? "%.0f Mbps" : "%.1f Mbps", v);
+    }
+
+    /** A read-only "label ... value" line; returns the value view so it can be filled or updated. */
+    private TextView statRow(LinearLayout list, String label) {
+        LinearLayout r = new LinearLayout(this);
+        r.setGravity(Gravity.CENTER_VERTICAL);
+        r.setPadding(dp(12), 0, dp(14), 0);
+        TextView l = text(12, "sans-serif", 0x99FFFFFF);
+        l.setText(label);
+        r.addView(l, new LinearLayout.LayoutParams(0, -2, 1f));
+        TextView v = text(13, "sans-serif-medium", Color.WHITE);
+        v.setSingleLine(true);
+        r.addView(v);
+        list.addView(r, new LinearLayout.LayoutParams(-1, dp(34)));
+        return v;
     }
 
     // ---------------------------------------------------------------- status
@@ -621,29 +1004,66 @@ public class MainActivity extends Activity {
         date.setText(new SimpleDateFormat("EEEE  d MMMM", Locale.getDefault()).format(now.getTime()).toUpperCase(Locale.getDefault()));
     }
 
+    /** Ethernet when wired, otherwise the Wi-Fi network name; "Offline" when neither is connected. */
     private void updateWifi() {
-        String name = "Wi-Fi";
+        String name = "Offline";
+        int icon = R.drawable.ic_wifi;
         try {
-            WifiManager wm = (WifiManager) getApplicationContext().getSystemService(WIFI_SERVICE);
-            if (wm != null && wm.getConnectionInfo() != null) {
-                String s = wm.getConnectionInfo().getSSID();
-                if (s != null && !s.contains("unknown ssid")) name = s.replace("\"", "");
-                if (wm.getConnectionInfo().getNetworkId() == -1) name = "Offline";
+            android.net.ConnectivityManager cm = (android.net.ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
+            android.net.NetworkCapabilities caps = cm == null ? null : cm.getNetworkCapabilities(cm.getActiveNetwork());
+            if (caps != null && caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_ETHERNET)) {
+                name = "Ethernet";
+                icon = R.drawable.ic_ethernet;
+            } else if (caps != null) {
+                name = "Wi-Fi";
+                WifiManager wm = (WifiManager) getApplicationContext().getSystemService(WIFI_SERVICE);
+                if (wm != null && wm.getConnectionInfo() != null) {
+                    String s = wm.getConnectionInfo().getSSID();
+                    if (s != null && !s.contains("unknown ssid")) name = s.replace("\"", "");
+                }
             }
         } catch (SecurityException ignored) { }
-        wifiPill.setText("◉  " + name);
+        wifiPill.setText(name);
+        setPillIcon(wifiPill, icon, wifiPill.isFocused() ? 0xFF111111 : 0xE6FFFFFF);
     }
 
     // ---------------------------------------------------------------- glow
 
     private void setGlow(int color) {
         glowColor = color;
-        GradientDrawable g = new GradientDrawable();
-        g.setGradientType(GradientDrawable.RADIAL_GRADIENT);
-        g.setGradientCenter(0.5f, 0.78f);
-        g.setGradientRadius(getResources().getDisplayMetrics().widthPixels * 0.62f);
-        g.setColors(new int[]{withAlpha(color, 0.5f), withAlpha(color, 0.14f), Color.TRANSPARENT});
-        glow.setBackground(g);
+        float[] hsv = new float[3];
+        Color.colorToHSV(color, hsv);
+        float sat = hsv[1], val = hsv[2];
+        // Neutral (grey) apps stay neutral; coloured apps drift 40 degrees for a two-tone gradient.
+        hsv[0] = (hsv[0] + 40f) % 360f;
+        hsv[1] = sat; hsv[2] = val * 0.55f;
+        int far = Color.HSVToColor(hsv);
+        backdropDrawable.setColors(new int[]{mix(Color.BLACK, color, 0.14f), mix(Color.BLACK, color, 0.38f), far});
+        glowDrawable.setGradientType(GradientDrawable.RADIAL_GRADIENT);
+        glowDrawable.setGradientCenter(0.5f, 0.78f);
+        glowDrawable.setGradientRadius(getResources().getDisplayMetrics().widthPixels * 0.62f);
+        glowDrawable.setColors(new int[]{withAlpha(color, 0.45f), withAlpha(color, 0.12f), Color.TRANSPARENT});
+        glow.setBackground(glowDrawable);
+        backdrop.invalidate();
+    }
+
+    private android.graphics.drawable.BitmapDrawable grainDrawable() {
+        Bitmap n = Bitmap.createBitmap(128, 128, Bitmap.Config.ARGB_8888);
+        java.util.Random r = new java.util.Random(7);
+        for (int y = 0; y < 128; y++) for (int x = 0; x < 128; x++) {
+            int v = r.nextInt(256);
+            n.setPixel(x, y, Color.argb(9, v, v, v));
+        }
+        android.graphics.drawable.BitmapDrawable bd = new android.graphics.drawable.BitmapDrawable(getResources(), n);
+        bd.setTileModeXY(android.graphics.Shader.TileMode.REPEAT, android.graphics.Shader.TileMode.REPEAT);
+        return bd;
+    }
+
+
+    private static int mix(int a, int b, float t) {
+        return Color.rgb((int) (Color.red(a) + (Color.red(b) - Color.red(a)) * t),
+                (int) (Color.green(a) + (Color.green(b) - Color.green(a)) * t),
+                (int) (Color.blue(a) + (Color.blue(b) - Color.blue(a)) * t));
     }
 
     private void animateGlow(int to) {
@@ -658,60 +1078,6 @@ public class MainActivity extends Activity {
         glow.animate().alpha(alpha).setDuration(300).start();
         // The grid sits over the photo's busiest middle part, so dim it while browsing apps.
         gridShade.animate().alpha(alpha < 1f ? 1f : 0f).setDuration(300).start();
-    }
-
-    // ---------------------------------------------------------------- wallpaper
-
-    private ImageView wallpaperLayer() {
-        ImageView v = new ImageView(this);
-        v.setScaleType(ImageView.ScaleType.CENTER_CROP);
-        return v;
-    }
-
-    /** Decode the next photo off the main thread, then crossfade it in over the current one. */
-    private void nextWallpaper() {
-        handler.removeCallbacks(rotateWallpaper);
-        if (wallpapers.length == 0) return;
-        if (wallIndex < 0) wallIndex = getPreferences(MODE_PRIVATE).getInt("wallpaper", -1);
-        wallIndex = (wallIndex + 1) % wallpapers.length;
-        getPreferences(MODE_PRIVATE).edit().putInt("wallpaper", wallIndex).apply();
-        wallChangedAt = SystemClock.elapsedRealtime();
-        String name = "wallpapers/" + wallpapers[wallIndex];
-        new Thread(() -> {
-            Bitmap bm = null;
-            try (java.io.InputStream in = getAssets().open(name)) {
-                BitmapFactory.Options o = new BitmapFactory.Options();
-                o.inPreferredConfig = Bitmap.Config.RGB_565;
-                bm = BitmapFactory.decodeStream(in, null, o);
-            } catch (java.io.IOException ignored) { }
-            Bitmap result = bm;
-            runOnUiThread(() -> showWallpaper(result));
-        }).start();
-        scheduleWallpaper(WALLPAPER_INTERVAL_MS);
-    }
-
-    private void showWallpaper(Bitmap bm) {
-        if (bm == null || isDestroyed()) return;
-        // Swap roles: the old front becomes the back, the new photo fades in on top.
-        ImageView old = wallFront;
-        wallFront = wallBack;
-        wallBack = old;
-        ViewGroup root = (ViewGroup) wallFront.getParent();
-        root.removeView(wallFront);
-        root.addView(wallFront, 1, new FrameLayout.LayoutParams(-1, -1));
-        wallFront.setImageBitmap(bm);
-        wallFront.setAlpha(0f);
-        wallFront.animate().alpha(1f).setDuration(firstWallpaper ? 600 : 2000).withEndAction(() -> {
-            wallBack.setImageDrawable(null); // release the previous photo
-        }).start();
-        firstWallpaper = false;
-    }
-
-    private boolean firstWallpaper = true;
-
-    private void scheduleWallpaper(long delay) {
-        handler.removeCallbacks(rotateWallpaper);
-        handler.postDelayed(rotateWallpaper, Math.max(1000, delay));
     }
 
     /** Average the banner's vivid pixels, then push saturation so the glow reads as a colour. */
@@ -825,6 +1191,7 @@ public class MainActivity extends Activity {
 
     @Override
     public boolean dispatchKeyEvent(KeyEvent e) {
+        if (editPkg != null && handleEditKey(e)) return true;
         // Menu key on the remote opens the Inputs dropdown.
         if (e.getKeyCode() == KeyEvent.KEYCODE_MENU && e.getAction() == KeyEvent.ACTION_UP && !pills.isEmpty()) {
             showInputs(pills.get(0));
