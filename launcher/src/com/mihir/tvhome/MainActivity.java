@@ -3,10 +3,12 @@ package com.mihir.tvhome;
 import android.animation.ArgbEvaluator;
 import android.animation.ValueAnimator;
 import android.app.Activity;
+import android.app.SearchManager;
 import android.content.BroadcastReceiver;
 import android.content.ComponentName;
 import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.content.IntentFilter;
 import android.content.pm.ActivityInfo;
 import android.content.pm.PackageManager;
@@ -34,6 +36,7 @@ import android.view.KeyEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.ViewOutlineProvider;
+import android.view.ViewTreeObserver;
 import android.view.animation.DecelerateInterpolator;
 import android.view.animation.OvershootInterpolator;
 import android.widget.FrameLayout;
@@ -89,6 +92,7 @@ public class MainActivity extends Activity {
     private View gridShade;
     private String[] wallpapers = new String[0];
     private int wallIndex = -1;
+    private boolean recreated; // e.g. by a settings change: keep the current wallpaper
     private long wallChangedAt;
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Runnable rotateWallpaper = this::nextWallpaper;
@@ -105,25 +109,34 @@ public class MainActivity extends Activity {
         @Override public void onReceive(Context c, Intent i) { updateClock(); updateWifi(); }
     };
     private final BroadcastReceiver packages = new BroadcastReceiver() {
-        @Override public void onReceive(Context c, Intent i) { buildApps(); }
+        @Override public void onReceive(Context c, Intent i) {
+            // The Search pill comes and goes with the system search app being enabled.
+            if (searchIntent() != null != hasSearch) recreate(); else buildApps();
+        }
     };
+    private boolean hasSearch;
+    private FrameLayout root;
+    private View settingsPanel;
+    private int settingsPos = -1, clickedPos;
 
     // ---------------------------------------------------------------- lifecycle
 
     @Override
     protected void onCreate(Bundle b) {
         super.onCreate(b);
+        recreated = b != null;
         dockApps = getResources().getStringArray(R.array.dock_apps);
         hidden.addAll(Arrays.asList(getResources().getStringArray(R.array.hidden_apps)));
         hidden.add(getPackageName());
         liveTvPkg = getString(R.string.live_tv_package);
         inputPickerPkg = getString(R.string.input_picker_package);
-        cols = getResources().getInteger(R.integer.columns);
+        cols = getPreferences(MODE_PRIVATE).getInt("columns", getResources().getInteger(R.integer.columns));
         getWindow().getDecorView().setSystemUiVisibility(
                 View.SYSTEM_UI_FLAG_FULLSCREEN | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
                         | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY | View.SYSTEM_UI_FLAG_LAYOUT_STABLE);
         setContentView(buildUi());
         buildApps();
+        if (b != null && b.getInt("settings", -1) >= 0) showSettings(b.getInt("settings"), false);
 
         IntentFilter pf = new IntentFilter();
         pf.addAction(Intent.ACTION_PACKAGE_ADDED);
@@ -173,12 +186,14 @@ public class MainActivity extends Activity {
         super.onNewIntent(intent);
         // Home pressed while already home: jump back to the first dock app.
         if (inputsPopup != null) inputsPopup.dismiss();
+        if (settingsPanel != null) closeSettings();
         if (!dockCards.isEmpty()) dockCards.get(0).requestFocus();
         scroll.smoothScrollTo(0, 0);
     }
 
     @Override
     public void onBackPressed() {
+        if (settingsPanel != null) { closeSettings(); return; }
         // Home has nowhere to go back to; Back from the grid returns to the dock.
         if (scroll.getScrollY() > 0 && !dockCards.isEmpty()) dockCards.get(0).requestFocus();
     }
@@ -186,7 +201,7 @@ public class MainActivity extends Activity {
     // ---------------------------------------------------------------- layout
 
     private View buildUi() {
-        FrameLayout root = new FrameLayout(this);
+        root = new FrameLayout(this);
         root.setBackgroundColor(Color.BLACK);
 
         // Wallpaper: two stacked layers so a new photo can crossfade in over the old one.
@@ -306,8 +321,17 @@ public class MainActivity extends Activity {
         wifiPill = pill("Wi-Fi", "◉");
         wifiPill.setOnClickListener(v -> launch(new Intent(Settings.ACTION_WIFI_SETTINGS)));
         TextView settings = pill("Settings", "⚙");
-        settings.setOnClickListener(v -> launch(new Intent(Settings.ACTION_SETTINGS)));
-        for (TextView p : new TextView[]{inputs, wifiPill, settings}) {
+        settings.setOnClickListener(v -> showSettings(0, true));
+        List<TextView> top = new ArrayList<>();
+        Intent search = searchIntent();
+        hasSearch = search != null;
+        if (hasSearch) {
+            TextView s = pill("Search", "⌕");
+            s.setOnClickListener(v -> launch(search));
+            top.add(s);
+        }
+        top.addAll(Arrays.asList(inputs, wifiPill, settings));
+        for (TextView p : top) {
             right.addView(p, llp(-2, dp(30), dp(10), 0, 0, 0));
             pills.add(p);
         }
@@ -672,7 +696,7 @@ public class MainActivity extends Activity {
     private void nextWallpaper() {
         handler.removeCallbacks(rotateWallpaper);
         if (wallpapers.length == 0) return;
-        if (wallIndex < 0) wallIndex = getPreferences(MODE_PRIVATE).getInt("wallpaper", -1);
+        if (wallIndex < 0) wallIndex = Math.max(-1, getPreferences(MODE_PRIVATE).getInt("wallpaper", -1) - (recreated ? 1 : 0));
         wallIndex = (wallIndex + 1) % wallpapers.length;
         getPreferences(MODE_PRIVATE).edit().putInt("wallpaper", wallIndex).apply();
         wallChangedAt = SystemClock.elapsedRealtime();
@@ -773,6 +797,192 @@ public class MainActivity extends Activity {
         } catch (RuntimeException e) {
             return false;
         }
+    }
+
+    /** Google TV's search, or null if no enabled app handles it or it's switched off here. */
+    private Intent searchIntent() {
+        return getPreferences(MODE_PRIVATE).getBoolean("search", true) ? systemSearch() : null;
+    }
+
+    private Intent systemSearch() {
+        Intent i = new Intent(SearchManager.INTENT_ACTION_GLOBAL_SEARCH);
+        return getPackageManager().resolveActivity(i, 0) != null ? i : null;
+    }
+
+    // ---------------------------------------------------------------- settings
+
+    /** Side panel with TV settings plus the launcher's own options. Changes recreate the activity and reopen it on the same row. */
+    private void showSettings(int pos, boolean animate) {
+        SharedPreferences prefs = getPreferences(MODE_PRIVATE);
+        FrameLayout overlay = new FrameLayout(this);
+        overlay.setBackgroundColor(0x66000000);
+        LinearLayout panel = new LinearLayout(this);
+        panel.setOrientation(LinearLayout.VERTICAL);
+        panel.setPadding(dp(28), dp(36), dp(28), dp(28));
+        panel.setBackgroundColor(0xF0141414);
+        TextView title = text(24, "sans-serif-light", Color.WHITE);
+        title.setText("Settings");
+        panel.addView(title, llp(-2, -2, dp(12), 0, 0, dp(20)));
+
+        settingsRow(panel, "TV settings", "›", () -> { closeSettings(); launch(new Intent(Settings.ACTION_SETTINGS)); }, null, null);
+        numberRow(panel, prefs, "Columns", "columns", () -> cols, n -> cols = n,
+                () -> scroll.smoothScrollTo(0, Math.max(0, appsLabel.getTop() - dp(48)))); // show the grid it changes
+        if (systemSearch() != null) { // no system search: no pill, nothing to toggle
+            boolean on = prefs.getBoolean("search", true);
+            settingsRow(panel, "Search button", on ? "On" : "Off", () -> change(prefs.edit().putBoolean("search", !on)), null,
+                    () -> scroll.smoothScrollTo(0, 0));
+        }
+
+        List<View> rows = new ArrayList<>();
+        for (int k = 1; k < panel.getChildCount(); k++) rows.add(panel.getChildAt(k));
+        rows.get(0).setNextFocusUpId(rows.get(0).getId());
+        rows.get(rows.size() - 1).setNextFocusDownId(rows.get(rows.size() - 1).getId());
+        overlay.addView(panel, new FrameLayout.LayoutParams(dp(360), -1, Gravity.END));
+        trapFocus(true); // also stops the dock grabbing focus as the activity comes back up
+        root.addView(overlay, new FrameLayout.LayoutParams(-1, -1));
+        settingsPanel = overlay;
+        // Shrink the home screen into the space left of the panel so changes stay in view.
+        int screenW = getResources().getDisplayMetrics().widthPixels, screenH = getResources().getDisplayMetrics().heightPixels;
+        float shrink = (float) (screenW - dp(360) - dp(24)) / screenW;
+        scroll.setPivotX(dp(12));
+        scroll.setPivotY(screenH / 2f);
+        if (animate) {
+            overlay.setAlpha(0f);
+            overlay.animate().alpha(1f).setDuration(200).start();
+            panel.setTranslationX(dp(360));
+            panel.animate().translationX(0).setInterpolator(new DecelerateInterpolator(2f)).setDuration(260).start();
+            scroll.animate().scaleX(shrink).scaleY(shrink).setInterpolator(new DecelerateInterpolator(2f)).setDuration(260).start();
+        } else {
+            scroll.setScaleX(shrink);
+            scroll.setScaleY(shrink);
+        }
+        View focus = rows.get(Math.min(pos, rows.size() - 1));
+        scroll.post(focus::requestFocus); // after layout, so its preview can scroll to real positions
+    }
+
+    /** A 4–8 number changed with Left/Right, applied in place with the tiles sliding to their new spots. */
+    private void numberRow(LinearLayout panel, SharedPreferences prefs, String label, String key,
+                           java.util.function.IntSupplier get, java.util.function.IntConsumer set, Runnable preview) {
+        TextView[] shown = new TextView[1];
+        shown[0] = settingsRow(panel, label, numberText(get.getAsInt()), null, d -> {
+            int n = get.getAsInt() + d;
+            if (n < 4 || n > 8) return;
+            prefs.edit().putInt(key, n).apply();
+            set.accept(n);
+            shown[0].setText(numberText(n));
+            reflow();
+        }, preview);
+    }
+
+    private static String numberText(int n) {
+        return (n > 4 ? "‹   " : "     ") + n + (n < 8 ? "   ›" : "     ");
+    }
+
+    /** Rebuilds the apps after a layout change, moving and resizing each tile from where it was. */
+    private void reflow() {
+        Map<String, float[]> before = new HashMap<>();
+        for (View c : allCards()) before.put(((App) c.getTag()).pkg, place((View) c.getParent()));
+        buildApps();
+        ViewTreeObserver vto = scroll.getViewTreeObserver();
+        vto.addOnPreDrawListener(new ViewTreeObserver.OnPreDrawListener() {
+            @Override public boolean onPreDraw() {
+                scroll.getViewTreeObserver().removeOnPreDrawListener(this);
+                float s = scroll.getScaleX(); // screen offsets shrink with the scaled home screen
+                for (View c : allCards()) {
+                    float[] was = before.get(((App) c.getTag()).pkg);
+                    if (was == null) continue;
+                    View box = (View) c.getParent();
+                    float[] now = place(box);
+                    box.setPivotX(0);
+                    box.setPivotY(0);
+                    box.setTranslationX((was[0] - now[0]) / s);
+                    box.setTranslationY((was[1] - now[1]) / s);
+                    box.setScaleX(was[2] / now[2]);
+                    box.setScaleY(was[2] / now[2]); // tiles keep their aspect ratio
+                    box.animate().translationX(0).translationY(0).scaleX(1).scaleY(1)
+                            .setInterpolator(new DecelerateInterpolator(1.5f)).setDuration(450).start();
+                }
+                return true;
+            }
+        });
+    }
+
+    private List<View> allCards() {
+        List<View> all = new ArrayList<>(dockCards);
+        all.addAll(gridCards);
+        return all;
+    }
+
+    /** On-screen x, y and width. */
+    private static float[] place(View v) {
+        int[] xy = new int[2];
+        v.getLocationOnScreen(xy);
+        return new float[]{xy[0], xy[1], v.getWidth() * v.getScaleX()};
+    }
+
+    /** One panel row: click runs {@code click}; Left/Right call {@code step} with -1/+1; focusing it runs {@code preview}. */
+    private TextView settingsRow(LinearLayout panel, String text, String val, Runnable click,
+                             java.util.function.IntConsumer step, Runnable preview) {
+        int index = panel.getChildCount() - 1; // the title is child 0
+        LinearLayout row = new LinearLayout(this);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(dp(16), 0, dp(16), 0);
+        row.setFocusable(true);
+        row.setId(View.generateViewId());
+        TextView label = text(15, "sans-serif", 0xE6FFFFFF), value = text(15, "sans-serif-medium", 0x99FFFFFF);
+        label.setText(text);
+        value.setText(val);
+        row.addView(label, new LinearLayout.LayoutParams(0, -2, 1));
+        row.addView(value);
+        GradientDrawable bg = new GradientDrawable();
+        bg.setCornerRadius(dp(12));
+        row.setBackground(bg);
+        row.setOnFocusChangeListener((v, has) -> {
+            bg.setColor(has ? 0xF2FFFFFF : 0);
+            label.setTextColor(has ? 0xFF111111 : 0xE6FFFFFF);
+            value.setTextColor(has ? 0xFF555555 : 0x99FFFFFF);
+            if (has && preview != null) preview.run();
+        });
+        if (click != null) row.setOnClickListener(v -> { clickedPos = index; click.run(); });
+        if (step != null) row.setOnKeyListener((v, code, e) -> {
+            if (code != KeyEvent.KEYCODE_DPAD_LEFT && code != KeyEvent.KEYCODE_DPAD_RIGHT) return false;
+            if (e.getAction() == KeyEvent.ACTION_DOWN) { clickedPos = index; step.accept(code == KeyEvent.KEYCODE_DPAD_LEFT ? -1 : 1); }
+            return true;
+        });
+        row.setNextFocusLeftId(row.getId());
+        row.setNextFocusRightId(row.getId());
+        panel.addView(row, llp(-1, dp(48), 0, 0, 0, dp(4)));
+        return value;
+    }
+
+    private void closeSettings() {
+        View overlay = settingsPanel;
+        settingsPanel = null;
+        trapFocus(false);
+        overlay.animate().alpha(0f).setDuration(200).withEndAction(() -> root.removeView(overlay)).start();
+        ((ViewGroup) overlay).getChildAt(0).animate().translationX(dp(360)).setDuration(200).start();
+        scroll.animate().scaleX(1f).scaleY(1f).setDuration(200).start();
+        scroll.smoothScrollTo(0, 0);
+        if (!pills.isEmpty()) pills.get(pills.size() - 1).requestFocus();
+    }
+
+    private void trapFocus(boolean on) {
+        for (int k = 0; k < root.getChildCount(); k++) if (root.getChildAt(k) instanceof ViewGroup)
+            ((ViewGroup) root.getChildAt(k)).setDescendantFocusability(
+                    on ? ViewGroup.FOCUS_BLOCK_DESCENDANTS : ViewGroup.FOCUS_AFTER_DESCENDANTS);
+    }
+
+    private void change(SharedPreferences.Editor e) {
+        e.apply();
+        settingsPos = clickedPos;
+        recreate();
+    }
+
+    @Override
+    protected void onSaveInstanceState(Bundle out) {
+        super.onSaveInstanceState(out);
+        out.putInt("settings", settingsPos);
+        settingsPos = -1;
     }
 
     private boolean isInstalled(String pkg) {
