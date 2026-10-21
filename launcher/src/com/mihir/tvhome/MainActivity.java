@@ -1,6 +1,7 @@
 package com.mihir.tvhome;
 
 import android.animation.ArgbEvaluator;
+import android.animation.ObjectAnimator;
 import android.animation.ValueAnimator;
 import android.app.Activity;
 import android.content.BroadcastReceiver;
@@ -28,6 +29,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
 import android.provider.Settings;
+import android.text.TextUtils;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.KeyEvent;
@@ -62,10 +64,14 @@ import java.util.Set;
 public class MainActivity extends Activity {
 
     // Dock, hidden apps, Live TV and grid width come from res/values/config.xml.
-    private String[] dockApps;
+    private final List<String> dockApps = new ArrayList<>(); // saved order, else config.xml
+    private String moving; // dock app being rearranged, or null
+    private ObjectAnimator wiggle;
     private final Set<String> hidden = new HashSet<>();
+    private final Set<String> userHidden = new HashSet<>(); // moved down out of All apps
+    private boolean showHidden;
     private String liveTvPkg, inputPickerPkg;
-    private int cols;
+    private int cols, dockCols;
 
     static final class App {
         String pkg, label;
@@ -78,12 +84,15 @@ public class MainActivity extends Activity {
     private final Map<String, Integer> colorCache = new HashMap<>();
     private final List<View> dockCards = new ArrayList<>();
     private final List<View> gridCards = new ArrayList<>();
+    private final List<View> hiddenCards = new ArrayList<>();
     private final List<View> pills = new ArrayList<>();
 
     private HomeScrollView scroll;
     private LinearLayout content, dockRow;
+    private MaxHeightScrollView dockScroll;
     private FrameLayout hero;
-    private LinearLayout grid;
+    private LinearLayout grid, hiddenGrid;
+    private TextView hiddenToggle;
     private View glow;
     private ImageView wallBack, wallFront;
     private View gridShade;
@@ -93,7 +102,7 @@ public class MainActivity extends Activity {
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Runnable rotateWallpaper = this::nextWallpaper;
     static final long WALLPAPER_INTERVAL_MS = 10 * 60 * 1000;
-    private TextView greeting, clock, ampm, date, title, wifiPill, appsLabel;
+    private TextView greeting, clock, ampm, date, title, wifiPill, appsLabel, hint;
     private int glowColor = 0xFF3A3A3A;
     private ValueAnimator glowAnim;
     private int lastFocusedId = View.NO_ID;
@@ -113,12 +122,16 @@ public class MainActivity extends Activity {
     @Override
     protected void onCreate(Bundle b) {
         super.onCreate(b);
-        dockApps = getResources().getStringArray(R.array.dock_apps);
+        String saved = getPreferences(MODE_PRIVATE).getString("dock", null);
+        dockApps.addAll(Arrays.asList(saved != null ? TextUtils.split(saved, ",")
+                : getResources().getStringArray(R.array.dock_apps)));
         hidden.addAll(Arrays.asList(getResources().getStringArray(R.array.hidden_apps)));
+        userHidden.addAll(Arrays.asList(TextUtils.split(getPreferences(MODE_PRIVATE).getString("hidden", ""), ",")));
         hidden.add(getPackageName());
         liveTvPkg = getString(R.string.live_tv_package);
         inputPickerPkg = getString(R.string.input_picker_package);
         cols = getResources().getInteger(R.integer.columns);
+        dockCols = getResources().getInteger(R.integer.dock_columns);
         getWindow().getDecorView().setSystemUiVisibility(
                 View.SYSTEM_UI_FLAG_FULLSCREEN | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
                         | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY | View.SYSTEM_UI_FLAG_LAYOUT_STABLE);
@@ -159,7 +172,14 @@ public class MainActivity extends Activity {
         super.onPause();
         handler.removeCallbacks(rotateWallpaper);
         unregisterReceiver(tick);
+        stopMoving();
         if (inputsPopup != null) inputsPopup.dismiss();
+    }
+
+    @Override
+    protected void onStop() {
+        super.onStop();
+        collapseHidden();
     }
 
     @Override
@@ -172,6 +192,8 @@ public class MainActivity extends Activity {
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
         // Home pressed while already home: jump back to the first dock app.
+        stopMoving();
+        collapseHidden();
         if (inputsPopup != null) inputsPopup.dismiss();
         if (!dockCards.isEmpty()) dockCards.get(0).requestFocus();
         scroll.smoothScrollTo(0, 0);
@@ -240,12 +262,17 @@ public class MainActivity extends Activity {
         title = text(34, "sans-serif-light", Color.WHITE);
         title.setShadowLayer(dp(18), 0, 0, 0x66000000);
         title.setSingleLine(true);
-        bottom.addView(title, new LinearLayout.LayoutParams(-2, -2));
-        ((LinearLayout.LayoutParams) title.getLayoutParams()).setMargins(dp(8), 0, 0, dp(14));
+        // Title with a small move-mode hint beside it, sharing the baseline.
+        LinearLayout titleRow = new LinearLayout(this);
+        titleRow.addView(title);
+        hint = text(11, "sans-serif-medium", 0x99FFFFFF);
+        hint.setLetterSpacing(0.22f);
+        hint.setVisibility(View.GONE);
+        titleRow.addView(hint, llp(-2, -2, dp(20), 0, 0, 0));
+        bottom.addView(titleRow, llp(-2, -2, dp(8), 0, 0, dp(14)));
 
         dockRow = new LinearLayout(this);
-        dockRow.setOrientation(LinearLayout.HORIZONTAL);
-        dockRow.setGravity(Gravity.CENTER);
+        dockRow.setOrientation(LinearLayout.VERTICAL); // rows of dockCols tiles
         dockRow.setClipChildren(false);
         dockRow.setClipToPadding(false);
         dockRow.setPadding(dp(20), dp(22), dp(20), dp(22));
@@ -253,8 +280,21 @@ public class MainActivity extends Activity {
         band.setCornerRadius(dp(26));
         band.setColor(0x1FFFFFFF);
         band.setStroke(dp(1), 0x14FFFFFF);
-        dockRow.setBackground(band);
-        bottom.addView(dockRow, new LinearLayout.LayoutParams(-1, -2));
+        // Enough dock rows to reach the clock scroll inside the band, fading out at the edges.
+        dockScroll = new MaxHeightScrollView(this);
+        dockScroll.setBackground(band);
+        dockScroll.setClipToOutline(true); // its parents let children overflow
+        dockScroll.setVerticalScrollBarEnabled(false);
+        dockScroll.setOverScrollMode(View.OVER_SCROLL_NEVER);
+        dockScroll.setVerticalFadingEdgeEnabled(true);
+        dockScroll.setFadingEdgeLength(dp(48));
+        dockScroll.addView(dockRow, new FrameLayout.LayoutParams(-1, -2));
+        bottom.addView(dockScroll, new LinearLayout.LayoutParams(-1, -2));
+        View header = hero.getChildAt(0);
+        header.measure(View.MeasureSpec.UNSPECIFIED, View.MeasureSpec.UNSPECIFIED);
+        title.measure(View.MeasureSpec.UNSPECIFIED, View.MeasureSpec.UNSPECIFIED);
+        dockScroll.max = screenH - dp(36) - header.getMeasuredHeight() - dp(24)
+                - title.getMeasuredHeight() - dp(14) - dp(30);
 
         appsLabel = text(11, "sans-serif-medium", 0x99FFFFFF);
         appsLabel.setText("ALL APPS");
@@ -265,7 +305,33 @@ public class MainActivity extends Activity {
         grid.setOrientation(LinearLayout.VERTICAL);
         grid.setClipChildren(false);
         grid.setClipToPadding(false);
-        content.addView(grid, llp(-1, -2, dp(68), 0, dp(68), dp(160)));
+        content.addView(grid, llp(-1, -2, dp(68), 0, dp(68), 0));
+
+        // Shown only when something is hidden; opens the hidden apps grid below it.
+        hiddenToggle = text(11, "sans-serif-medium", 0x99FFFFFF);
+        hiddenToggle.setLetterSpacing(0.22f);
+        hiddenToggle.setGravity(Gravity.CENTER);
+        hiddenToggle.setPadding(dp(14), 0, dp(14), 0);
+        hiddenToggle.setFocusable(true);
+        hiddenToggle.setId(View.generateViewId());
+        GradientDrawable tbg = new GradientDrawable();
+        tbg.setCornerRadius(dp(15));
+        tbg.setStroke(dp(1), 0x33FFFFFF);
+        hiddenToggle.setBackground(tbg);
+        hiddenToggle.setOnFocusChangeListener((v, has) -> {
+            tbg.setColor(has ? 0xF2FFFFFF : Color.TRANSPARENT);
+            hiddenToggle.setTextColor(has ? 0xFF111111 : 0x99FFFFFF);
+            if (has) { lastFocusedId = v.getId(); scrollTo(v.getTop()); }
+        });
+        hiddenToggle.setOnClickListener(v -> { showHidden = !showHidden; buildApps(); });
+        content.addView(hiddenToggle, llp(-2, dp(30), dp(60), 0, 0, dp(26)));
+
+        hiddenGrid = new LinearLayout(this);
+        hiddenGrid.setOrientation(LinearLayout.VERTICAL);
+        hiddenGrid.setClipChildren(false);
+        hiddenGrid.setClipToPadding(false);
+        content.addView(hiddenGrid, llp(-1, -2, dp(68), 0, dp(68), 0));
+        content.setPadding(0, 0, 0, dp(160)); // room to centre the last row
         return root;
     }
 
@@ -344,6 +410,8 @@ public class MainActivity extends Activity {
         android.content.pm.ChangedPackages changed = pm.getChangedPackages(packageSeq);
         if (changed != null) packageSeq = changed.getSequenceNumber();
         Intent q = new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LEANBACK_LAUNCHER);
+        View f = getCurrentFocus();
+        String focusedPkg = f != null && f.getTag() instanceof App ? ((App) f.getTag()).pkg : null;
         Map<String, App> byPkg = new HashMap<>();
         for (ResolveInfo ri : pm.queryIntentActivities(q, 0)) {
             ActivityInfo ai = ri.activityInfo;
@@ -362,51 +430,85 @@ public class MainActivity extends Activity {
 
         List<App> dock = new ArrayList<>();
         for (String p : dockApps) if (byPkg.containsKey(p)) dock.add(byPkg.remove(p));
+        List<App> hid = new ArrayList<>();
+        for (String p : userHidden) if (byPkg.containsKey(p)) hid.add(byPkg.remove(p));
         List<App> rest = new ArrayList<>(byPkg.values());
         Collections.sort(rest, (x, y) -> x.label.compareToIgnoreCase(y.label));
+        Collections.sort(hid, (x, y) -> x.label.compareToIgnoreCase(y.label));
 
         dockRow.removeAllViews();
         grid.removeAllViews();
+        hiddenGrid.removeAllViews();
         dockCards.clear();
         gridCards.clear();
-
-        for (int i = 0; i < dock.size(); i++) {
-            View tile = tile(dock.get(i), true);
-            LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, -2, 1f);
-            p.setMargins(i == 0 ? 0 : dp(10), 0, i == dock.size() - 1 ? 0 : dp(10), 0);
-            dockRow.addView(tile, p);
-        }
+        hiddenCards.clear();
 
         LinearLayout row = null;
-        for (int i = 0; i < rest.size(); i++) {
-            if (i % cols == 0) {
+        for (int i = 0; i < dock.size(); i++) {
+            if (i % dockCols == 0) {
                 row = new LinearLayout(this);
                 row.setClipChildren(false);
                 row.setClipToPadding(false);
-                grid.addView(row, llp(-1, -2, 0, 0, 0, dp(26)));
+                dockRow.addView(row, llp(-1, -2, 0, i == 0 ? 0 : dp(18), 0, 0));
             }
-            View tile = tile(rest.get(i), false);
+            View tile = tile(dock.get(i), dockCards);
             LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, -2, 1f);
-            p.setMargins(i % cols == 0 ? 0 : dp(10), 0, i % cols == cols - 1 ? 0 : dp(10), 0);
+            p.setMargins(i % dockCols == 0 ? 0 : dp(10), 0, i % dockCols == dockCols - 1 ? 0 : dp(10), 0);
             row.addView(tile, p);
         }
-        // Pad the last row so tiles keep their width.
-        if (row != null) for (int i = rest.size() % cols; i != 0 && i < cols; i++) {
-            LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, 1, 1f);
-            p.setMargins(dp(10), 0, i == cols - 1 ? 0 : dp(10), 0);
-            row.addView(new View(this), p);
-        }
+        padRow(row, dock.size(), dockCols);
+
+        fillGrid(grid, rest, gridCards);
+        if (hid.isEmpty()) showHidden = false;
+        if (showHidden) fillGrid(hiddenGrid, hid, hiddenCards);
+        hiddenToggle.setText(showHidden ? "HIDE HIDDEN APPS" : "SHOW HIDDEN APPS  \u00B7  " + hid.size());
+        hiddenToggle.setVisibility(hid.isEmpty() ? View.GONE : View.VISIBLE);
         appsLabel.setVisibility(rest.isEmpty() ? View.GONE : View.VISIBLE);
         wireFocus();
 
         if (!dock.isEmpty()) { title.setText(dock.get(0).label); setGlow(dock.get(0).color); }
+        else title.setText("");
+        // View ids are new after a rebuild, so refocus by package; keep a move going across it.
+        if (focusApp(moving != null ? moving : focusedPkg)) return;
+        if (moving != null) stopMoving(); // the app being moved was uninstalled
         View last = lastFocusedId == View.NO_ID ? null : findViewById(lastFocusedId);
         if (last != null) last.requestFocus();
         else if (!dockCards.isEmpty()) dockCards.get(0).requestFocus();
     }
 
+    private void fillGrid(LinearLayout into, List<App> apps, List<View> cards) {
+        LinearLayout row = null;
+        for (int i = 0; i < apps.size(); i++) {
+            if (i % cols == 0) {
+                row = new LinearLayout(this);
+                row.setClipChildren(false);
+                row.setClipToPadding(false);
+                into.addView(row, llp(-1, -2, 0, 0, 0, dp(26)));
+            }
+            View tile = tile(apps.get(i), cards);
+            LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, -2, 1f);
+            p.setMargins(i % cols == 0 ? 0 : dp(10), 0, i % cols == cols - 1 ? 0 : dp(10), 0);
+            row.addView(tile, p);
+        }
+        padRow(row, apps.size(), cols);
+    }
+
+    private void collapseHidden() {
+        if (showHidden) { showHidden = false; buildApps(); }
+    }
+
+    /** Pad the last row so tiles keep their width. */
+    private void padRow(LinearLayout row, int n, int perRow) {
+        if (row != null) for (int i = n % perRow; i != 0 && i < perRow; i++) {
+            LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, 1, 1f);
+            p.setMargins(dp(10), 0, i == perRow - 1 ? 0 : dp(10), 0);
+            row.addView(new View(this), p);
+        }
+    }
+
     /** A 16:9 card with the app's banner; the name shows under it while focused. */
-    private View tile(App app, boolean inDock) {
+    private View tile(App app, List<View> cards) {
+        boolean inDock = cards == dockCards;
         LinearLayout box = new LinearLayout(this);
         box.setOrientation(LinearLayout.VERTICAL);
         box.setClipChildren(false);
@@ -417,6 +519,7 @@ public class MainActivity extends Activity {
         card.setFocusable(true);
         card.setClickable(true);
         card.setTag(app);
+        card.setContentDescription(app.label);
         card.setClipToOutline(true);
         card.setOutlineProvider(new ViewOutlineProvider() {
             @Override public void getOutline(View v, Outline o) {
@@ -462,6 +565,7 @@ public class MainActivity extends Activity {
                 .addCategory(Intent.CATEGORY_LEANBACK_LAUNCHER)
                 .setComponent(app.component)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)));
+        card.setOnLongClickListener(v -> { moving = app.pkg; focusApp(app.pkg); return true; });
         card.setOnFocusChangeListener((v, has) -> {
             float s = has ? (inDock ? 1.12f : 1.1f) : 1f;
             v.animate().scaleX(s).scaleY(s).translationZ(has ? dp(14) : 0)
@@ -484,7 +588,7 @@ public class MainActivity extends Activity {
             }
         });
 
-        (inDock ? dockCards : gridCards).add(card);
+        cards.add(card);
         return box;
     }
 
@@ -496,39 +600,58 @@ public class MainActivity extends Activity {
             p.setNextFocusLeftId(i == 0 ? p.getId() : pills.get(i - 1).getId());
             p.setNextFocusRightId(i == pills.size() - 1 ? p.getId() : pills.get(i + 1).getId());
             p.setNextFocusUpId(p.getId());
-            p.setNextFocusDownId(d > 0 ? dockCards.get(Math.min(d - 1, d / 2)).getId() : p.getId());
+            p.setNextFocusDownId(d > 0 ? dockCards.get(Math.min(d, dockCols) - 1).getId() : p.getId());
         }
         int topId = pills.get(0).getId();
+        int below = hiddenToggle.getVisibility() == View.VISIBLE ? hiddenToggle.getId() : View.NO_ID;
+        int lastDockRowStart = d == 0 ? 0 : (d - 1) / dockCols * dockCols;
         for (int i = 0; i < d; i++) {
             View c = dockCards.get(i);
-            c.setNextFocusUpId(topId);
-            c.setNextFocusLeftId(i == 0 ? c.getId() : dockCards.get(i - 1).getId());
-            c.setNextFocusRightId(i == d - 1 ? c.getId() : dockCards.get(i + 1).getId());
-            c.setNextFocusDownId(g > 0 ? gridCards.get(Math.min(i, g - 1)).getId() : c.getId());
+            int col = i % dockCols;
+            c.setNextFocusUpId(i < dockCols ? topId : dockCards.get(i - dockCols).getId());
+            c.setNextFocusLeftId(col == 0 ? c.getId() : dockCards.get(i - 1).getId());
+            c.setNextFocusRightId(col == dockCols - 1 || i == d - 1 ? c.getId() : dockCards.get(i + 1).getId());
+            c.setNextFocusDownId(i + dockCols < d ? dockCards.get(i + dockCols).getId()
+                    : i < lastDockRowStart ? dockCards.get(d - 1).getId()
+                    : g > 0 ? gridCards.get(Math.min(col * cols / dockCols, g - 1)).getId()
+                    : below != View.NO_ID ? below : c.getId());
         }
-        int lastRow = (g - 1) / cols;
+        wireGrid(gridCards, col -> d > 0 ? dockCards.get(Math.min(lastDockRowStart + col * dockCols / cols, d - 1)).getId() : topId, below);
+        View t = hiddenToggle;
+        t.setNextFocusUpId(g > 0 ? gridCards.get((g - 1) / cols * cols).getId() : d > 0 ? dockCards.get(lastDockRowStart).getId() : topId);
+        t.setNextFocusDownId(hiddenCards.isEmpty() ? t.getId() : hiddenCards.get(0).getId());
+        t.setNextFocusLeftId(t.getId());
+        t.setNextFocusRightId(t.getId());
+        wireGrid(hiddenCards, col -> t.getId(), View.NO_ID);
+    }
+
+    /** A grid of cols per row; Up from the first row and Down from the last row go to the given ids. */
+    private void wireGrid(List<View> cards, java.util.function.IntUnaryOperator upFromCol, int belowId) {
+        int g = cards.size(), lastRow = (g - 1) / cols;
         for (int j = 0; j < g; j++) {
-            View c = gridCards.get(j);
+            View c = cards.get(j);
             int r = j / cols, col = j % cols;
-            c.setNextFocusUpId(r == 0
-                    ? (d > 0 ? dockCards.get(Math.min(col, d - 1)).getId() : topId)
-                    : gridCards.get(j - cols).getId());
-            c.setNextFocusDownId(j + cols < g ? gridCards.get(j + cols).getId()
-                    : r < lastRow ? gridCards.get(g - 1).getId() : c.getId());
-            c.setNextFocusLeftId(col == 0 ? c.getId() : gridCards.get(j - 1).getId());
-            c.setNextFocusRightId(col == cols - 1 || j == g - 1 ? c.getId() : gridCards.get(j + 1).getId());
+            c.setNextFocusUpId(r == 0 ? upFromCol.applyAsInt(col) : cards.get(j - cols).getId());
+            c.setNextFocusDownId(j + cols < g ? cards.get(j + cols).getId()
+                    : r < lastRow ? cards.get(g - 1).getId() : belowId != View.NO_ID ? belowId : c.getId());
+            c.setNextFocusLeftId(col == 0 ? c.getId() : cards.get(j - 1).getId());
+            c.setNextFocusRightId(col == cols - 1 || j == g - 1 ? c.getId() : cards.get(j + 1).getId());
         }
     }
 
     private void scrollToRow(View tileBox) {
         View row = (View) tileBox.getParent();
-        int y = grid.getTop() + row.getTop();
-        int screenH = getResources().getDisplayMetrics().heightPixels;
+        View section = (View) row.getParent();
         // First grid row: slide the dock band up to the top edge; later rows centre on screen.
-        View band = (View) dockRow.getParent();
-        int target = grid.indexOfChild(row) == 0
-                ? hero.getTop() + band.getTop() + dockRow.getTop() - dp(22)
-                : y - (int) (screenH * 0.42f);
+        View band = (View) dockScroll.getParent();
+        if (section == grid && grid.indexOfChild(row) == 0)
+            scroll.smoothScrollTo(0, hero.getTop() + band.getTop() + dockScroll.getTop() - dp(22));
+        else scrollTo(section.getTop() + row.getTop());
+    }
+
+    /** Scroll so content y sits a little above the middle of the screen. */
+    private void scrollTo(int y) {
+        int target = y - (int) (getResources().getDisplayMetrics().heightPixels * 0.42f);
         int max = Math.max(0, content.getHeight() - scroll.getHeight());
         scroll.smoothScrollTo(0, Math.max(0, Math.min(target, max)));
     }
@@ -607,6 +730,98 @@ public class MainActivity extends Activity {
             r.setTextColor(has ? 0xFF111111 : Color.WHITE);
         });
         return r;
+    }
+
+    // ---------------------------------------------------------------- editing the dock
+
+    /** Down past the last dock row: drop the moving app into All apps, still moving so Up can undo it. */
+    private void removeMoving() {
+        dockApps.remove(moving);
+        saveDock();
+    }
+
+    /** Down from All apps: hide the moving app, opening the hidden section so it can keep moving there. */
+    private void hideMoving() {
+        userHidden.add(moving);
+        showHidden = true;
+        saveDock();
+    }
+
+    private void stopMoving() {
+        moving = null;
+        hint.setVisibility(View.GONE);
+        if (wiggle == null) return;
+        View c = (View) wiggle.getTarget();
+        wiggle.cancel();
+        wiggle = null;
+        c.setRotation(0);
+        ViewGroup box = (ViewGroup) c.getParent();
+        if (box.getChildCount() > 1) ((TextView) box.getChildAt(1)).setText(((App) c.getTag()).label);
+    }
+
+    private boolean movingOnLastRow() {
+        int i = dockPackages().indexOf(moving);
+        return i >= 0 && i / dockCols == (dockCards.size() - 1) / dockCols;
+    }
+
+    /** Move the app being rearranged by delta places among the visible dock tiles. */
+    private void moveBy(int delta) {
+        List<String> order = dockPackages();
+        // Past the end clamps to last place (Down into a short last row); before the start does nothing.
+        int i = order.indexOf(moving), j = Math.min(order.size() - 1, i + delta);
+        if (i < 0 || j < 0 || i == j) return;
+        order.add(j, order.remove(i));
+        for (String p : dockApps) if (!order.contains(p)) order.add(p); // keep uninstalled favourites
+        dockApps.clear();
+        dockApps.addAll(order);
+        saveDock();
+    }
+
+    private List<String> dockPackages() {
+        List<String> l = new ArrayList<>();
+        for (View c : dockCards) l.add(((App) c.getTag()).pkg);
+        return l;
+    }
+
+    private void saveDock() {
+        getPreferences(MODE_PRIVATE).edit().putString("dock", TextUtils.join(",", dockApps))
+                .putString("hidden", TextUtils.join(",", userHidden)).apply();
+        buildApps();
+    }
+
+    /** Focus an app's tile by package (view ids change on every rebuild); wiggle it if it's moving. */
+    private boolean focusApp(String pkg) {
+        if (pkg == null) return false;
+        List<View> all = new ArrayList<>(dockCards);
+        all.addAll(gridCards);
+        all.addAll(hiddenCards);
+        for (View c : all) {
+            App a = (App) c.getTag();
+            if (!a.pkg.equals(pkg)) continue;
+            c.requestFocus();
+            boolean inDock = dockCards.contains(c);
+            // Set explicitly: refocusing an already-focused tile doesn't fire its focus listener.
+            if (inDock) title.setText(a.label);
+            if (!pkg.equals(moving)) return true;
+            if (inDock) {
+                boolean last = movingOnLastRow();
+                hint.setText("\u25C0 \u25B6" + (dockCards.indexOf(c) >= dockCols ? " \u25B2" : "") + (last ? "" : " \u25BC")
+                        + " MOVE" + (last ? "  \u00B7  \u25BC REMOVE" : "") + "  \u00B7  OK DONE");
+                hint.setVisibility(View.VISIBLE);
+            } else {
+                // The tile's own name label, since the dock title is scrolled away.
+                ((TextView) ((ViewGroup) c.getParent()).getChildAt(1)).setText(hiddenCards.contains(c)
+                        ? "\u25B2 UNHIDE" : "\u25B2 FAVORITE   \u25BC HIDE");
+            }
+            if (wiggle != null) wiggle.cancel(); // its tile was replaced by the rebuild
+            wiggle = ObjectAnimator.ofFloat(c, View.ROTATION, -2f, 2f);
+            wiggle.setDuration(220);
+            wiggle.setRepeatMode(ValueAnimator.REVERSE);
+            wiggle.setRepeatCount(ValueAnimator.INFINITE);
+            wiggle.start();
+            return true;
+        }
+        return false;
     }
 
     // ---------------------------------------------------------------- status
@@ -825,6 +1040,29 @@ public class MainActivity extends Activity {
 
     @Override
     public boolean dispatchKeyEvent(KeyEvent e) {
+        // Rearranging: in the dock, arrows move the app, Down off the last row removes it; in All apps,
+        // Up adds it to the dock, Down hides it; in Hidden, Up unhides it. It keeps moving through each step.
+        // Any other key finishes. Both key actions are eaten so the
+        // key-up can't click the tile or trigger Back.
+        if (moving != null) {
+            int k = e.getKeyCode();
+            int delta = k == KeyEvent.KEYCODE_DPAD_LEFT ? -1 : k == KeyEvent.KEYCODE_DPAD_RIGHT ? 1
+                    : k == KeyEvent.KEYCODE_DPAD_UP ? -dockCols : k == KeyEvent.KEYCODE_DPAD_DOWN ? dockCols : 0;
+            boolean done = k == KeyEvent.KEYCODE_DPAD_CENTER || k == KeyEvent.KEYCODE_ENTER || k == KeyEvent.KEYCODE_BACK;
+            if (delta != 0 || done) {
+                // Repeats are the long-press that started the move still being held.
+                if (e.getAction() == KeyEvent.ACTION_DOWN && (delta != 0 || e.getRepeatCount() == 0)) {
+                    boolean inDock = dockPackages().contains(moving), inHidden = userHidden.contains(moving);
+                    if (inDock && delta == dockCols && movingOnLastRow()) removeMoving();
+                    else if (inDock && delta != 0) moveBy(delta);
+                    else if (inHidden && delta == -dockCols) { userHidden.remove(moving); saveDock(); }
+                    else if (!inHidden && delta == -dockCols) { dockApps.add(moving); saveDock(); }
+                    else if (!inHidden && delta == dockCols) hideMoving();
+                    else { String p = moving; stopMoving(); focusApp(p); }
+                }
+                return true;
+            }
+        }
         // Menu key on the remote opens the Inputs dropdown.
         if (e.getKeyCode() == KeyEvent.KEYCODE_MENU && e.getAction() == KeyEvent.ACTION_UP && !pills.isEmpty()) {
             showInputs(pills.get(0));
@@ -839,6 +1077,15 @@ public class MainActivity extends Activity {
         @Override protected void onMeasure(int w, int h) {
             int width = MeasureSpec.getSize(w);
             super.onMeasure(w, MeasureSpec.makeMeasureSpec(width * 9 / 16, MeasureSpec.EXACTLY));
+        }
+    }
+
+    /** ScrollView no taller than max. */
+    static final class MaxHeightScrollView extends android.widget.ScrollView {
+        int max = Integer.MAX_VALUE;
+        MaxHeightScrollView(Context c) { super(c); }
+        @Override protected void onMeasure(int w, int h) {
+            super.onMeasure(w, MeasureSpec.makeMeasureSpec(max, MeasureSpec.AT_MOST));
         }
     }
 
