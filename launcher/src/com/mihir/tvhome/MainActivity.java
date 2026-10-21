@@ -171,8 +171,9 @@ public class MainActivity extends Activity {
     @Override
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
-        // Home pressed while already home: jump back to the first dock app.
+        // Home pressed while already home: jump back to the first dock app. From another app, keep focus where it was.
         if (inputsPopup != null) inputsPopup.dismiss();
+        if (!hasWindowFocus()) return; // the activity is paused for the intent either way
         if (!dockCards.isEmpty()) dockCards.get(0).requestFocus();
         scroll.smoothScrollTo(0, 0);
     }
@@ -341,6 +342,8 @@ public class MainActivity extends Activity {
 
     private void buildApps() {
         PackageManager pm = getPackageManager();
+        View f = getCurrentFocus();
+        String focusedPkg = f != null && f.getTag() instanceof App ? ((App) f.getTag()).pkg : null;
         android.content.pm.ChangedPackages changed = pm.getChangedPackages(packageSeq);
         if (changed != null) packageSeq = changed.getSequenceNumber();
         Intent q = new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LEANBACK_LAUNCHER);
@@ -400,6 +403,10 @@ public class MainActivity extends Activity {
         wireFocus();
 
         if (!dock.isEmpty()) { title.setText(dock.get(0).label); setGlow(dock.get(0).color); }
+        // View ids are new after a rebuild (e.g. an app updated while another was in front), so refocus by package.
+        List<View> all = new ArrayList<>(dockCards);
+        all.addAll(gridCards);
+        for (View c : all) if (((App) c.getTag()).pkg.equals(focusedPkg)) { c.requestFocus(); return; }
         View last = lastFocusedId == View.NO_ID ? null : findViewById(lastFocusedId);
         if (last != null) last.requestFocus();
         else if (!dockCards.isEmpty()) dockCards.get(0).requestFocus();
