@@ -95,6 +95,11 @@ cached apps Android keeps (`tools/restore.sh` removes it). Killing apps automati
 be done from a launcher: force-stop is shell/system only, and the Philips firmware rejects
 `killBackgroundProcesses` from third-party apps ("Invalid packageName").
 
+### Monthly upkeep on a small TV
+Storage is the squeeze (the Philips TA1 has 4.9 GB for apps). Play Store auto-update is best switched off
+(Play Store → profile → Settings → Auto-update apps → "Don't auto-update apps"), then once a month: update
+apps from Manage apps & games, and run `tools/free-memory.sh --trim-caches` (about 0.4 GB back).
+
 ## Gotchas we hit
 
 - **macOS blocks the `adb` binary** on the local network ("No route to host"). `tools/tv.py` uses

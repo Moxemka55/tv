@@ -29,3 +29,4 @@ com.google.android.play.games
 com.google.android.youtube.tvmusic # YouTube Music
 com.google.android.syncadapters.calendar  # Google Calendar sync: pointless on a TV
 com.vewd.core.browser          # Vewd browser (4 processes, no ad blocker); replaced by TV Bro, data kept (disabled, not uninstalled)
+com.google.android.katniss         # Google voice search / Assistant (remote mic button), ~300 MB RSS across 2 processes
