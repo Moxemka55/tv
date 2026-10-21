@@ -13,8 +13,10 @@ screen with a dock of my favourite apps and rotating nature wallpapers. Back up 
 anything, check every step with screenshots from the TV, and give me a restore script.
 
 Heads-up from people who've done this: use the adb-shell Python package if macOS blocks adb; on
-Google TV also disable com.google.android.tungsten.setupwraith or it hijacks the Home button; and
-test the Home button from inside an app.
+Google TV also disable com.google.android.tungsten.setupwraith or it hijacks the Home button (on
+a Chromecast with Google TV, read examples/chromecast-google-tv-sabrina/NOTES.md first: there
+that breaks casting); test the Home button from inside an app; and restart the TV once at the end
+to check it comes back.
 ```
 
 If you cloned [this repo](https://github.com/mihirgupta0900/tv-home), run Claude Code inside it. It
