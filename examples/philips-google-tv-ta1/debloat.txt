@@ -1,0 +1,32 @@
+# Philips Google TV (TPV TA1, device PH1M_WW_9972), Android 14, build UKN2.241117.001
+# Apply: tools/disable.sh examples/philips-google-tv-ta1/debloat.txt   Undo: tools/restore.sh <same file>
+# Everything is DISABLED for user 0, never uninstalled.
+# Answers here: keep Ambilight + Hue; no casting, AirPlay or Alexa; no antenna/cable TV, teletext or USB/DLNA media.
+
+# Ads, promos and telemetry
+com.tpv.nftgallery                 # "NFT Collection" promo tile
+tv.samba.ssm                       # Samba TV: automatic content recognition (tracks what you watch)
+android.autoinstalls.config.google.gtvpai   # silently installs promoted apps
+com.google.android.feedback        # Google feedback/crash reporting
+com.google.android.apps.tv.dreamx  # ambient screensaver with recommendations (falls back to basic)
+org.droidtv.customautologservice   # TPV auto-logging service
+org.droidtv.candeebug              # TPV debug/log client
+org.droidtv.demome                 # shop demo mode
+org.droidtv.hbbtvopapp             # HbbTV (interactive broadcast ads)
+
+# Features you said you don't use
+com.google.android.apps.mediashell # Chromecast built-in (casting from phone)
+com.mediatek.AirplayAPK            # AirPlay
+com.mediatek.airplaydaemon
+org.droidtv.amazonalexa            # Alexa voice (Google Assistant is separate)
+org.droidtv.teletext
+org.droidtv.dlna                   # DLNA media server/renderer
+org.droidtv.contentexplorer        # USB / network media browser
+org.droidtv.control4app            # Control4 home automation
+org.droidtv.control4sddp
+
+# Apps you don't use (Rakuten TV, tv.wuaki.apptv, is uninstalled for this user; restore re-installs it)
+com.google.android.play.games
+com.google.android.youtube.tvmusic # YouTube Music
+com.google.android.syncadapters.calendar  # Google Calendar sync: pointless on a TV
+com.vewd.core.browser          # Vewd browser (4 processes, no ad blocker); replaced by TV Bro, data kept (disabled, not uninstalled)

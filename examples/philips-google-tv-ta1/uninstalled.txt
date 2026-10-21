@@ -1,0 +1,7 @@
+# Uninstalled for user 0 only (the system image keeps them). Restore: cmd package install-existing <pkg>
+tv.wuaki.apptv   # Rakuten TV
+com.amazon.amazonvideo.livingroom   # Prime Video
+io.mimi.tvapp                       # Mimi Sound Personalization (its service, io.mimi.sdk.service, left in place)
+org.droidtv.sunrise                 # Sunrise Alarm
+org.droidtv.eum                     # Philips OneHelp
+# com.wbd.stream (HBO Max) was user-installed and is fully removed; reinstall it from Google Play.
