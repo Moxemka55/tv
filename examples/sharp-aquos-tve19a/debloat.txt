@@ -1,0 +1,29 @@
+# Sharp AQUOS TVE19A (MediaTek/Cvte), Android 11 (not Google TV), 1.4 GB RAM
+# Apply: tools/disable.sh examples/sharp-aquos-tve19a/debloat.txt   Undo: tools/restore.sh <same file>
+# Everything is DISABLED for user 0, never uninstalled.
+# Comment out any line for an app you use. Answers here: streaming only (no antenna/cable),
+# keep Chromecast, keep Spotify/Twitch/Pluto, no voice search, no USB media.
+# Deliberately kept: com.mediatek.wwtv.tvcenter (HDMI input switching), com.cvte.* (remote keys,
+# factory menu), com.mediatek.partner.netflix (Netflix button), com.google.android.apps.mediashell (cast),
+# com.google.android.tv.remote.service (phone-as-remote).
+
+# Telemetry and ads
+tv.anoki.acr.controller                            # ACR: watches what is on screen for ad targeting
+com.google.android.tvrecommendations               # promoted rows for the stock launcher
+com.google.android.leanbacklauncher.partnercustomizer  # partner promo rows
+com.google.android.feedback                        # feedback/crash reporter
+com.google.android.partnersetup                    # partner install hooks
+
+# Free-TV / channel clutter (streaming only)
+com.cltv.fast                                      # FAST channels app, runs a TV input service
+com.mediatek.tv.freeviewplay                       # Freeview Play shell (UK)
+
+# Manufacturer junk
+fusion.android.tv.demo                             # store demo mode
+umc.com.emanual                                    # e-manual
+com.mediatek.testpq                                # picture-quality test tool
+com.mediatek.dmp.mediaplayer                       # USB media player
+
+# Google extras
+com.google.android.katniss                         # Google app / Assistant / voice search
+com.google.android.syncadapters.calendar           # calendar sync
