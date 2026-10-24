@@ -628,8 +628,11 @@ public class MainActivity extends Activity {
             if (wm != null && wm.getConnectionInfo() != null) {
                 String s = wm.getConnectionInfo().getSSID();
                 if (s != null && !s.contains("unknown ssid")) name = s.replace("\"", "");
-                if (wm.getConnectionInfo().getNetworkId() == -1) name = "Offline";
             }
+            // Some firmware hides the network id from apps, so ask ConnectivityManager if we're online.
+            android.net.ConnectivityManager cm = (android.net.ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
+            android.net.NetworkInfo ni = cm == null ? null : cm.getActiveNetworkInfo();
+            if (ni == null || !ni.isConnected()) name = "Offline";
         } catch (SecurityException ignored) { }
         wifiPill.setText("◉  " + name);
     }
