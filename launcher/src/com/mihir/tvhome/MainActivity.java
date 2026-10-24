@@ -22,6 +22,8 @@ import android.graphics.drawable.GradientDrawable;
 import android.media.tv.TvContract;
 import android.media.tv.TvInputInfo;
 import android.media.tv.TvInputManager;
+import android.net.ConnectivityManager;
+import android.net.NetworkCapabilities;
 import android.net.wifi.WifiManager;
 import android.os.Bundle;
 import android.os.Handler;
@@ -130,7 +132,7 @@ public class MainActivity extends Activity {
         pf.addAction(Intent.ACTION_PACKAGE_REMOVED);
         pf.addAction(Intent.ACTION_PACKAGE_CHANGED);
         pf.addDataScheme("package");
-        registerReceiver(packages, pf);
+        registerSystemReceiver(packages, pf);
     }
 
     @Override
@@ -140,7 +142,7 @@ public class MainActivity extends Activity {
         tf.addAction(Intent.ACTION_TIME_CHANGED);
         tf.addAction(Intent.ACTION_TIMEZONE_CHANGED);
         tf.addAction(WifiManager.NETWORK_STATE_CHANGED_ACTION);
-        registerReceiver(tick, tf);
+        registerSystemReceiver(tick, tf);
         updateClock();
         updateWifi();
         View last = lastFocusedId == View.NO_ID ? null : findViewById(lastFocusedId);
@@ -622,15 +624,19 @@ public class MainActivity extends Activity {
     }
 
     private void updateWifi() {
-        String name = "Wi-Fi";
-        try {
-            WifiManager wm = (WifiManager) getApplicationContext().getSystemService(WIFI_SERVICE);
-            if (wm != null && wm.getConnectionInfo() != null) {
-                String s = wm.getConnectionInfo().getSSID();
+        // Online-ness comes from ConnectivityManager: on Android 14 WifiInfo is redacted (network id -1,
+        // unknown SSID) unless location is on, which made a connected TV read "Offline".
+        String name = "Offline";
+        ConnectivityManager cm = getSystemService(ConnectivityManager.class);
+        NetworkCapabilities caps = cm == null ? null : cm.getNetworkCapabilities(cm.getActiveNetwork());
+        if (caps != null) {
+            name = caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET) ? "Ethernet" : "Wi-Fi";
+            try {
+                WifiManager wm = (WifiManager) getApplicationContext().getSystemService(WIFI_SERVICE);
+                String s = wm == null || wm.getConnectionInfo() == null ? null : wm.getConnectionInfo().getSSID();
                 if (s != null && !s.contains("unknown ssid")) name = s.replace("\"", "");
-                if (wm.getConnectionInfo().getNetworkId() == -1) name = "Offline";
-            }
-        } catch (SecurityException ignored) { }
+            } catch (SecurityException ignored) { }
+        }
         wifiPill.setText("◉  " + name);
     }
 
@@ -773,6 +779,12 @@ public class MainActivity extends Activity {
         } catch (RuntimeException e) {
             return false;
         }
+    }
+
+    /** Both receivers only want system broadcasts; Android 14 requires saying other apps can't send them. */
+    private void registerSystemReceiver(BroadcastReceiver r, IntentFilter f) {
+        if (android.os.Build.VERSION.SDK_INT >= 33) registerReceiver(r, f, RECEIVER_NOT_EXPORTED);
+        else registerReceiver(r, f);
     }
 
     private boolean isInstalled(String pkg) {

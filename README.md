@@ -76,6 +76,10 @@ Change the dock: edit `config.xml`, then run `launcher/build-and-install.sh`.
 - **Google TV hijacks the Home button.** With the stock launcher disabled, the setup app
   (`com.google.android.tungsten.setupwraith`) has a higher HOME priority than any third-party
   launcher. The install script disables it; `restore.sh` re-enables it.
+- **Disabling the setup app deleted the TV's Wi-Fi network** (TCL QM6K Pro, Android 14). The network
+  joined during first-time setup belongs to `setupwraith`, and Android removes an app's saved networks when
+  it's disabled, so the TV drops offline and ADB goes with it. Forget the network and join it again in
+  Settings first; the install script refuses to disable the setup app until you have.
 - **Home opened the launcher behind the current app**, because of a stale home task from switching
   launchers. Force-stopping the launcher and `com.android.tv.settings` and pressing Home fixes it.
   The install script does this.

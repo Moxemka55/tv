@@ -14,5 +14,5 @@ STOCK_LAUNCHER="${STOCK_LAUNCHER:-com.google.android.apps.tv.launcherx/.home.Hom
   echo "pm enable ${STOCK_LAUNCHER%%/*}"
   echo "cmd package set-home-activity --user 0 $STOCK_LAUNCHER"
   echo "input keyevent KEYCODE_HOME"
-} | "$PY" -I tools/tv.py --batch
+} | "$PY" -I tools/tv.py --batch --keep-going
 echo "Restored. Press Home on the remote."

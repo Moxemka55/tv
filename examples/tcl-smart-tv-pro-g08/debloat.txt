@@ -1,0 +1,35 @@
+# TCL Smart TV Pro (75QM6K Pro, device G08), Android 14, build tcl9618-user 14 UTT2.250416.001
+# Apply: tools/disable.sh examples/tcl-smart-tv-pro-g08/debloat.txt
+# Undo:  tools/restore.sh examples/tcl-smart-tv-pro-g08/debloat.txt
+# Everything is DISABLED for user 0, never uninstalled. Apply a few lines at a time and reboot the TV
+# between batches; a first attempt on this set ended in a black screen and a factory reset.
+
+# --- TCL ads and promos ---
+com.tcl.messagebox                          # TCL promotional popup messages
+com.tcl.esticker                            # on-screen promotional stickers
+com.tcl.partnercustomizer                   # injects partner/sponsored app rows into the stock launcher
+# com.tcl.channelplus                       # "TCL Channel" tab: TCL re-enables it at every boot, so not listed
+# com.tcl.tv.tclhome_passive                # TCL home content feed: also re-enabled at every boot
+
+# --- TCL telemetry and accounts ---
+# com.tcl.usercenter                          # TCL account / phone binding [TCL re-enables at boot]
+# com.tcl.logkit                              # TCL diagnostic log uploader [TCL re-enables at boot]
+
+# --- Factory / demo / hotel modes ---
+com.tcl.hotelmenu                           # hotel mode menu
+com.tcl.factory.view                        # factory-line test UI
+com.tcl.exhibit                             # retail demo / exhibit mode
+# com.tcl.ocean.instructions                  # on-screen instruction overlays [TCL re-enables at boot]
+
+# --- Google extras ---
+com.google.android.apps.tv.dreamx          # ambient screensaver that cycles Google-promoted content
+android.autoinstalls.config.google.gtvpai  # silently installs Google-promoted apps in the background
+com.google.android.play.games              # Google Play Games hub
+com.google.android.feedback                # sends crash/usage reports to Google
+# com.android.tv.feedbackconsent            # consent dialog for the above [TCL re-enables at boot]
+
+# --- Not applied: may be needed for boot, setup or Alexa on this model. Uncomment only one at a time,
+#     then reboot and check the TV still reaches its home screen and Wi-Fi. ---
+# com.tcl.ttvs                              # TCL core service: analytics, but also Alexa bridge and account sync
+# com.tcl.initsetup                         # TCL first-run setup
+# com.tcl.useragreement                     # TCL setup agreement screen
