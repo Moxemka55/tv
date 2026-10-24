@@ -1,0 +1,11 @@
+# TCL Smart TV Pro (75QM6K Pro, device G08), Android 14.
+# Packages TCL's firmware re-enables at every boot, so disabling them doesn't stick. These are removed for
+# user 0 instead (`pm uninstall -k --user 0`): the APK stays in /product and its data is kept.
+# Undo: tools/restore.sh examples/tcl-smart-tv-pro-g08/debloat.txt examples/tcl-smart-tv-pro-g08/uninstall.txt
+
+com.tcl.channelplus                         # "TCL Channel" free-with-ads tab (also adds a TCL Channel TV input)
+com.tcl.tv.tclhome_passive                  # TCL home content feed
+com.tcl.usercenter                          # TCL account / phone binding
+com.tcl.logkit                              # TCL diagnostic log uploader
+# com.tcl.ocean.instructions                  # on-screen instruction overlays [TCL reinstalls at boot]
+# com.android.tv.feedbackconsent             # consent dialog for Google feedback reporting [TCL reinstalls at boot]
