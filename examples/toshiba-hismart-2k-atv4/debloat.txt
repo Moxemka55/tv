@@ -1,0 +1,26 @@
+# Toshiba Android TV (HiSmart 2K ATV4 / hamamatsucho), Android 11, build RTO6.230407.001
+# Apply: tools/disable.sh examples/toshiba-hismart-2k-atv4/debloat.txt   Undo: tools/restore.sh <same file>
+# Everything is DISABLED for user 0, never uninstalled.
+# Comment out any line for an app you use.
+
+# Home screen ads, recommendations and promotional channels
+com.google.android.tvrecommendations                # sponsored channels and hero ad banners
+com.google.android.leanbacklauncher.partnercustomizer # partner app rows and promotional launcher links
+
+# Setup wizards & Home button hijacking
+com.google.android.tungsten.setupwraith             # hijacks Home button when custom launcher is used
+com.mediatek.wwtv.setupwizard                       # initial OEM setup wizard
+
+# Manufacturer (Hisense / CVTE) store demo and factory clutter
+fusion.android.tv.demo                              # retail / store demo loop
+com.cvte.tv.hisensefac                              # Hisense factory test suite
+com.cvte.fac.menu                                   # factory test menu
+com.cvte.tv.at                                      # auto-test background service
+com.at.factory.factorymanager                       # factory manager service
+mediatek.factorymenu.ui                             # MediaTek factory test interface
+com.mediatek.testpq                                 # picture quality testing utility
+com.mstar.android.tv.disclaimercustomization        # OEM disclaimer popup
+android.autoinstalls.config.hisense.laoshan         # silently triggers partner app downloads
+
+# Google extras & telemetry
+com.google.android.feedback                         # crash reporting and telemetry
