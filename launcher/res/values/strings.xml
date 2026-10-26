@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- UI text. Translations go in res/values-<lang>/strings.xml; missing ones fall back to these. -->
+<resources>
+    <string name="app_name">Home</string>
+
+    <string name="good_morning">Good morning</string>
+    <string name="good_afternoon">Good afternoon</string>
+    <string name="good_evening">Good evening</string>
+    <string name="good_night">Good night</string>
+
+    <string name="inputs">Inputs</string>
+    <string name="wifi">Wi-Fi</string>
+    <string name="offline">Offline</string>
+    <string name="settings">Settings</string>
+    <string name="live_tv">Live TV</string>
+    <string name="all_sources">All sources…</string>
+    <string name="all_apps">All apps</string>
+
+    <!-- Hour (0-23) each part of the day starts at. Night runs from night_starts to morning_starts;
+         24 means it only starts at midnight. -->
+    <integer name="morning_starts">5</integer>
+    <integer name="afternoon_starts">12</integer>
+    <integer name="evening_starts">17</integer>
+    <integer name="night_starts">24</integer>
+</resources>

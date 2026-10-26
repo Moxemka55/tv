@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Головна</string>
+
+    <string name="good_morning">Доброго ранку</string>
+    <string name="good_afternoon">Доброго дня</string>
+    <string name="good_evening">Доброго вечора</string>
+    <string name="good_night">Доброї ночі</string>
+
+    <string name="inputs">Входи</string>
+    <string name="wifi">Wi-Fi</string>
+    <string name="offline">Немає мережі</string>
+    <string name="settings">Налаштування</string>
+    <string name="live_tv">Ефірне ТБ</string>
+    <string name="all_sources">Усі джерела…</string>
+    <string name="all_apps">Усі застосунки</string>
+
+    <integer name="morning_starts">5</integer>
+    <integer name="afternoon_starts">12</integer>
+    <integer name="evening_starts">18</integer>
+    <integer name="night_starts">23</integer>
+</resources>

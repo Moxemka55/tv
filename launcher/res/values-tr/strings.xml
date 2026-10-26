@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Ana ekran</string>
+
+    <string name="good_morning">Günaydın</string>
+    <string name="good_afternoon">İyi günler</string>
+    <string name="good_evening">İyi akşamlar</string>
+    <string name="good_night">İyi geceler</string>
+
+    <string name="inputs">Girişler</string>
+    <string name="wifi">Wi-Fi</string>
+    <string name="offline">Çevrimdışı</string>
+    <string name="settings">Ayarlar</string>
+    <string name="live_tv">Canlı TV</string>
+    <string name="all_sources">Tüm kaynaklar…</string>
+    <string name="all_apps">Tüm uygulamalar</string>
+
+    <integer name="morning_starts">5</integer>
+    <integer name="afternoon_starts">12</integer>
+    <integer name="evening_starts">18</integer>
+    <integer name="night_starts">23</integer>
+</resources>

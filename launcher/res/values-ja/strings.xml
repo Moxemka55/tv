@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">ホーム</string>
+
+    <string name="good_morning">おはようございます</string>
+    <string name="good_afternoon">こんにちは</string>
+    <string name="good_evening">こんばんは</string>
+    <string name="good_night">こんばんは</string>
+
+    <string name="inputs">入力切替</string>
+    <string name="wifi">Wi-Fi</string>
+    <string name="offline">オフライン</string>
+    <string name="settings">設定</string>
+    <string name="live_tv">テレビ放送</string>
+    <string name="all_sources">すべての入力…</string>
+    <string name="all_apps">すべてのアプリ</string>
+
+    <integer name="morning_starts">5</integer>
+    <integer name="afternoon_starts">11</integer>
+    <integer name="evening_starts">18</integer>
+    <integer name="night_starts">24</integer>
+</resources>
