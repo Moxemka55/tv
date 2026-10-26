@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">होम</string>
+
+    <string name="good_morning">सुप्रभात</string>
+    <string name="good_afternoon">शुभ दोपहर</string>
+    <string name="good_evening">शुभ संध्या</string>
+    <string name="good_night">शुभ रात्रि</string>
+
+    <string name="inputs">इनपुट</string>
+    <string name="wifi">वाई-फ़ाई</string>
+    <string name="offline">ऑफ़लाइन</string>
+    <string name="settings">सेटिंग</string>
+    <string name="live_tv">लाइव टीवी</string>
+    <string name="all_sources">सभी स्रोत…</string>
+    <string name="all_apps">सभी ऐप्लिकेशन</string>
+</resources>

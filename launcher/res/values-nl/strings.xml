@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Start</string>
+
+    <string name="good_morning">Goedemorgen</string>
+    <string name="good_afternoon">Goedemiddag</string>
+    <string name="good_evening">Goedenavond</string>
+    <string name="good_night">Goedenacht</string>
+
+    <string name="inputs">Ingangen</string>
+    <string name="wifi">Wifi</string>
+    <string name="offline">Offline</string>
+    <string name="settings">Instellingen</string>
+    <string name="live_tv">Live-tv</string>
+    <string name="all_sources">Alle bronnen…</string>
+    <string name="all_apps">Alle apps</string>
+
+    <integer name="morning_starts">5</integer>
+    <integer name="afternoon_starts">12</integer>
+    <integer name="evening_starts">18</integer>
+    <integer name="night_starts">24</integer>
+</resources>

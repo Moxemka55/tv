@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">홈</string>
+
+    <string name="good_morning">좋은 아침입니다</string>
+    <string name="good_afternoon">좋은 오후입니다</string>
+    <string name="good_evening">좋은 저녁입니다</string>
+    <string name="good_night">편안한 밤 되세요</string>
+
+    <string name="inputs">외부 입력</string>
+    <string name="wifi">Wi-Fi</string>
+    <string name="offline">오프라인</string>
+    <string name="settings">설정</string>
+    <string name="live_tv">실시간 TV</string>
+    <string name="all_sources">모든 입력…</string>
+    <string name="all_apps">모든 앱</string>
+
+    <integer name="morning_starts">5</integer>
+    <integer name="afternoon_starts">12</integer>
+    <integer name="evening_starts">18</integer>
+    <integer name="night_starts">24</integer>
+</resources>
