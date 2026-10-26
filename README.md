@@ -51,6 +51,7 @@ Undo everything with `tools/restore.sh <the same list>`.
 | [PROMPT.md](PROMPT.md) | The prompt for Claude Code / any coding agent |
 | [launcher/](launcher/) | The home screen. 4.7 MB including the wallpapers; plain Android, no network, no background services |
 | [launcher/res/values/config.xml](launcher/res/values/config.xml) | Dock apps, hidden apps, Live TV app, grid columns |
+| [launcher/res/values/strings.xml](launcher/res/values/strings.xml) | UI text and where each part of the day starts; translations in `res/values-<lang>/` (Russian included) |
 | [tools/tv.py](tools/tv.py) | Pure-Python ADB client: shell, batch, screenshots, chunked APK push |
 | [tools/find-tv.sh](tools/find-tv.sh) | Finds Android TVs on your Wi-Fi |
 | [tools/type.sh](tools/type.sh) | Type into the TV's on-screen keyboard from your laptop (`tools/type.sh` alone prompts hidden, for passwords) |
