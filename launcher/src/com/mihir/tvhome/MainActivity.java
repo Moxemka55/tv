@@ -23,6 +23,7 @@ import android.media.tv.TvContract;
 import android.media.tv.TvInputInfo;
 import android.media.tv.TvInputManager;
 import android.net.wifi.WifiManager;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -61,18 +62,49 @@ import java.util.Set;
  */
 public class MainActivity extends Activity {
 
-    // Dock, hidden apps, Live TV and grid width come from res/values/config.xml.
+    // Dock, hidden apps, Live TV and grid width come from res/values/config.xml
+    // as the starting default. Premium on-TV changes (SettingsActivity) override
+    // them via PremiumPrefs, so no rebuild is needed to edit or reorder.
     private String[] dockApps;
     private final Set<String> hidden = new HashSet<>();
     private String liveTvPkg, inputPickerPkg;
     private int cols;
+    private boolean wallpaperOn = true;
 
     static final class App {
         String pkg, label;
         ComponentName component;
         Drawable art;
         boolean isBanner;
+        boolean leanback;
         int color;
+    }
+
+    /** Re-read premium settings. Call in onCreate and onResume (after SettingsActivity). */
+    private void reloadPremiumPrefs() {
+        List<String> savedDock = PremiumPrefs.getDockOrder(this);
+        dockApps = savedDock != null
+                ? savedDock.toArray(new String[0])
+                : getResources().getStringArray(R.array.dock_apps);
+        hidden.clear();
+        hidden.addAll(Arrays.asList(getResources().getStringArray(R.array.hidden_apps)));
+        hidden.add(getPackageName());
+        hidden.addAll(PremiumPrefs.getUserHidden(this));
+        // Brand-aware services: the stock config is TCL-centric. On Xiaomi the
+        // Live TV tuner is usually the MediaTek TV centre, not com.tcl.tv, and
+        // the TCL input picker does not exist, so do not point at it.
+        String maker = Build.MANUFACTURER != null ? Build.MANUFACTURER.toLowerCase(Locale.US) : "";
+        String model = Build.MODEL != null ? Build.MODEL : "";
+        if (maker.contains("xiaomi") || model.contains("AFMU")) {
+            liveTvPkg = "com.mediatek.wwtv.tvcenter";
+            inputPickerPkg = "";
+        } else {
+            liveTvPkg = getString(R.string.live_tv_package);
+            inputPickerPkg = getString(R.string.input_picker_package);
+        }
+        int savedCols = PremiumPrefs.getColumns(this);
+        cols = savedCols > 0 ? savedCols : getResources().getInteger(R.integer.columns);
+        wallpaperOn = PremiumPrefs.isWallpaperOn(this);
     }
 
     private final Map<String, Integer> colorCache = new HashMap<>();
@@ -113,12 +145,7 @@ public class MainActivity extends Activity {
     @Override
     protected void onCreate(Bundle b) {
         super.onCreate(b);
-        dockApps = getResources().getStringArray(R.array.dock_apps);
-        hidden.addAll(Arrays.asList(getResources().getStringArray(R.array.hidden_apps)));
-        hidden.add(getPackageName());
-        liveTvPkg = getString(R.string.live_tv_package);
-        inputPickerPkg = getString(R.string.input_picker_package);
-        cols = getResources().getInteger(R.integer.columns);
+        reloadPremiumPrefs();
         getWindow().getDecorView().setSystemUiVisibility(
                 View.SYSTEM_UI_FLAG_FULLSCREEN | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
                         | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY | View.SYSTEM_UI_FLAG_LAYOUT_STABLE);
@@ -136,6 +163,9 @@ public class MainActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
+        // Pick up any change made in Premium Settings, then rebuild the home screen.
+        reloadPremiumPrefs();
+        buildApps();
         IntentFilter tf = new IntentFilter(Intent.ACTION_TIME_TICK);
         tf.addAction(Intent.ACTION_TIME_CHANGED);
         tf.addAction(Intent.ACTION_TIMEZONE_CHANGED);
@@ -158,13 +188,13 @@ public class MainActivity extends Activity {
     protected void onPause() {
         super.onPause();
         handler.removeCallbacks(rotateWallpaper);
-        unregisterReceiver(tick);
+        try { unregisterReceiver(tick); } catch (IllegalArgumentException ignored) { }
         if (inputsPopup != null) inputsPopup.dismiss();
     }
 
     @Override
     protected void onDestroy() {
-        unregisterReceiver(packages);
+        try { unregisterReceiver(packages); } catch (IllegalArgumentException ignored) { }
         super.onDestroy();
     }
 
@@ -206,6 +236,7 @@ public class MainActivity extends Activity {
         try {
             wallpapers = getAssets().list("wallpapers");
         } catch (java.io.IOException ignored) { }
+        if (wallpapers == null) wallpapers = new String[0];
 
         glow = new View(this);
         root.addView(glow, new FrameLayout.LayoutParams(-1, -1));
@@ -307,7 +338,11 @@ public class MainActivity extends Activity {
         wifiPill.setOnClickListener(v -> launch(new Intent(Settings.ACTION_WIFI_SETTINGS)));
         TextView settings = pill("Settings", "⚙");
         settings.setOnClickListener(v -> launch(new Intent(Settings.ACTION_SETTINGS)));
-        for (TextView p : new TextView[]{inputs, wifiPill, settings}) {
+        // Premium: on-TV launcher settings (edit dock, reorder, hide apps,
+        // columns, wallpaper, default Home). No rebuild, no config.xml edit.
+        TextView premium = pill("Premium", "★");
+        premium.setOnClickListener(v -> launch(new Intent(this, SettingsActivity.class)));
+        for (TextView p : new TextView[]{inputs, wifiPill, settings, premium}) {
             right.addView(p, llp(-2, dp(30), dp(10), 0, 0, 0));
             pills.add(p);
         }
@@ -343,27 +378,48 @@ public class MainActivity extends Activity {
         PackageManager pm = getPackageManager();
         android.content.pm.ChangedPackages changed = pm.getChangedPackages(packageSeq);
         if (changed != null) packageSeq = changed.getSequenceNumber();
-        Intent q = new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LEANBACK_LAUNCHER);
+        // Premium fix: the original only queried LEANBACK_LAUNCHER, so sideloaded
+        // apps, Play Store, file managers and other non-Leanback services never
+        // appeared. Query both, preferring the Leanback activity when both exist.
         Map<String, App> byPkg = new HashMap<>();
-        for (ResolveInfo ri : pm.queryIntentActivities(q, 0)) {
-            ActivityInfo ai = ri.activityInfo;
-            if (hidden.contains(ai.packageName) || byPkg.containsKey(ai.packageName)) continue;
-            App a = new App();
-            a.pkg = ai.packageName;
-            a.label = String.valueOf(ri.loadLabel(pm));
-            a.component = new ComponentName(ai.packageName, ai.name);
-            Drawable banner = ai.loadBanner(pm);
-            if (banner == null) banner = ai.applicationInfo.loadBanner(pm);
-            a.isBanner = banner != null;
-            a.art = banner != null ? banner : ri.loadIcon(pm);
-            a.color = sampleColor(a.pkg, a.art);
-            byPkg.put(a.pkg, a);
+        String[] categories = new String[]{Intent.CATEGORY_LEANBACK_LAUNCHER, Intent.CATEGORY_LAUNCHER};
+        for (String cat : categories) {
+            boolean leanback = Intent.CATEGORY_LEANBACK_LAUNCHER.equals(cat);
+            Intent q = new Intent(Intent.ACTION_MAIN).addCategory(cat);
+            for (ResolveInfo ri : pm.queryIntentActivities(q, 0)) {
+                ActivityInfo ai = ri.activityInfo;
+                if (hidden.contains(ai.packageName) || byPkg.containsKey(ai.packageName)) continue;
+                App a = new App();
+                a.pkg = ai.packageName;
+                a.label = String.valueOf(ri.loadLabel(pm));
+                a.component = new ComponentName(ai.packageName, ai.name);
+                a.leanback = leanback;
+                Drawable banner = ai.loadBanner(pm);
+                if (banner == null) banner = ai.applicationInfo.loadBanner(pm);
+                a.isBanner = banner != null;
+                a.art = banner != null ? banner : ri.loadIcon(pm);
+                a.color = sampleColor(a.pkg, a.art);
+                byPkg.put(a.pkg, a);
+            }
         }
 
         List<App> dock = new ArrayList<>();
         for (String p : dockApps) if (byPkg.containsKey(p)) dock.add(byPkg.remove(p));
         List<App> rest = new ArrayList<>(byPkg.values());
-        Collections.sort(rest, (x, y) -> x.label.compareToIgnoreCase(y.label));
+        // Premium grid order: if the user reordered the grid in Settings, keep
+        // that order first, then alphabetical for anything new.
+        List<String> gridOrder = PremiumPrefs.getGridOrder(this);
+        if (gridOrder != null) {
+            Collections.sort(rest, (x, y) -> {
+                int ix = gridOrder.indexOf(x.pkg), iy = gridOrder.indexOf(y.pkg);
+                if (ix >= 0 && iy >= 0) return Integer.compare(ix, iy);
+                if (ix >= 0) return -1;
+                if (iy >= 0) return 1;
+                return x.label.compareToIgnoreCase(y.label);
+            });
+        } else {
+            Collections.sort(rest, (x, y) -> x.label.compareToIgnoreCase(y.label));
+        }
 
         dockRow.removeAllViews();
         grid.removeAllViews();
@@ -459,7 +515,7 @@ public class MainActivity extends Activity {
         if (!inDock) box.addView(label, llp(-1, -2, 0, dp(10), 0, 0));
 
         card.setOnClickListener(v -> launch(new Intent(Intent.ACTION_MAIN)
-                .addCategory(Intent.CATEGORY_LEANBACK_LAUNCHER)
+                .addCategory(app.leanback ? Intent.CATEGORY_LEANBACK_LAUNCHER : Intent.CATEGORY_LAUNCHER)
                 .setComponent(app.component)
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)));
         card.setOnFocusChangeListener((v, has) -> {
@@ -561,7 +617,13 @@ public class MainActivity extends Activity {
                 if (!launch(i)) openPackage(inputPickerPkg);
             }));
         }
-        if (isInstalled(liveTvPkg)) rows.add(inputRow("Live TV", () -> openPackage(liveTvPkg)));
+        // Live TV: try the brand's tuner first, then the common alternatives.
+        // The original only tried com.tcl.tv, which does not exist on Xiaomi.
+        String[] liveCandidates = new String[]{liveTvPkg, "com.mediatek.wwtv.tvcenter",
+                "com.google.android.tv", "com.android.tv"};
+        for (String cand : liveCandidates) {
+            if (isInstalled(cand)) { final String pkg = cand; rows.add(inputRow("Live TV", () -> openPackage(pkg))); break; }
+        }
         if (inputs.isEmpty() && isInstalled(inputPickerPkg)) rows.add(inputRow("All sources…", () -> openPackage(inputPickerPkg)));
 
         if (rows.isEmpty()) rows.add(inputRow("Settings", () -> launch(new Intent(Settings.ACTION_SETTINGS))));
@@ -671,6 +733,11 @@ public class MainActivity extends Activity {
     /** Decode the next photo off the main thread, then crossfade it in over the current one. */
     private void nextWallpaper() {
         handler.removeCallbacks(rotateWallpaper);
+        if (!wallpaperOn) {
+            if (wallBack != null) wallBack.setImageDrawable(null);
+            if (wallFront != null) wallFront.setImageDrawable(null);
+            return;
+        }
         if (wallpapers.length == 0) return;
         if (wallIndex < 0) wallIndex = getPreferences(MODE_PRIVATE).getInt("wallpaper", -1);
         wallIndex = (wallIndex + 1) % wallpapers.length;

@@ -1,0 +1,78 @@
+name: Build TV Home APK
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: android-actions/setup-android@v4
+
+      - name: Build and sign APK
+        shell: bash
+        run: |
+          set -euo pipefail
+          sdkmanager "platforms;android-34" "build-tools;34.0.0"
+          cd launcher
+
+          SDK="$ANDROID_HOME"
+          BT="$SDK/build-tools/34.0.0"
+          JAR="$SDK/platforms/android-34/android.jar"
+
+          mkdir -p build/gen build/classes build/dex
+
+          "$BT/aapt2" compile --dir res -o build/resources.zip
+
+          "$BT/aapt2" link -I "$JAR" --manifest AndroidManifest.xml \
+            -A assets --java build/gen --min-sdk-version 26 \
+            --target-sdk-version 32 -o build/base.apk build/resources.zip
+
+          SOURCES=(src build/gen)
+          if [ -d third_party ]; then SOURCES+=(third_party); fi
+
+          mapfile -d '' JAVA_FILES < <(find "${SOURCES[@]}" -name '*.java' -print0)
+
+          javac --release 17 -cp "$JAR" \
+            -d build/classes "${JAVA_FILES[@]}"
+
+          mapfile -d '' CLASS_FILES < <(find build/classes -name '*.class' -print0)
+
+          "$BT/d8" --min-api 26 --lib "$JAR" \
+            --output build/dex "${CLASS_FILES[@]}"
+
+          cp build/base.apk build/unsigned.apk
+
+          (cd build/dex && zip -q -j ../unsigned.apk ./*.dex)
+
+          "$BT/zipalign" -f 4 \
+            build/unsigned.apk build/aligned.apk
+
+          keytool -genkeypair -noprompt \
+            -keystore build/debug.keystore \
+            -storepass android -keypass android \
+            -alias androiddebugkey \
+            -keyalg RSA -keysize 2048 -validity 3650 \
+            -dname "CN=Android Debug,O=Android,C=US"
+
+          "$BT/apksigner" sign \
+            --ks build/debug.keystore \
+            --ks-pass pass:android \
+            --key-pass pass:android \
+            --ks-key-alias androiddebugkey \
+            --out build/tv-home.apk build/aligned.apk
+
+          "$BT/apksigner" verify build/tv-home.apk
+
+      - name: Save APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: TV-Home-APK
+          path: launcher/build/tv-home.apk
