@@ -67,7 +67,7 @@ Undo everything with `tools/restore.sh <the same list>`.
 - **Continue watching** shows what apps like Netflix and HBO Max report as in progress or up next,
   with a progress bar; select one to resume. It uses each app's banner rather than posters, so the
   launcher stays offline. Apps that don't publish to Android TV's Watch Next don't appear.
-- 12 nature photos crossfade every 10 minutes, with a scrim so text stays readable. Swap them in
+- 12 nature photos from Oregon and Florida crossfade every 10 minutes, with a scrim so text stays readable. Swap them in
   `launcher/assets/wallpapers/` (1920×1080 JPEGs, credits in `launcher/WALLPAPER-CREDITS.md`).
 - Deterministic D-pad focus, remembers the last tile, picks up newly installed apps on return.
 
