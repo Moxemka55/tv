@@ -11,12 +11,15 @@ import android.content.IntentFilter;
 import android.content.pm.ActivityInfo;
 import android.content.pm.PackageManager;
 import android.content.pm.ResolveInfo;
+import android.database.Cursor;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Outline;
 import android.graphics.Typeface;
+import android.graphics.drawable.ClipDrawable;
+import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.GradientDrawable;
 import android.media.tv.TvContract;
@@ -30,6 +33,7 @@ import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
 import android.provider.Settings;
+import android.text.TextUtils;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.KeyEvent;
@@ -68,6 +72,7 @@ public class MainActivity extends Activity {
     private final Set<String> hidden = new HashSet<>();
     private String liveTvPkg, inputPickerPkg;
     private int cols;
+    private float glowStrength = 1f;
 
     static final class App {
         String pkg, label;
@@ -77,15 +82,24 @@ public class MainActivity extends Activity {
         int color;
     }
 
+    /** A continue-watching entry an app published to the TV provider. */
+    static final class WatchNext {
+        String pkg, title, episodeTitle, season, episode, intentUri;
+        float progress;
+    }
+
     private final Map<String, Integer> colorCache = new HashMap<>();
+    private Map<String, App> allApps = new HashMap<>();
+    private List<WatchNext> watchNext = new ArrayList<>();
     private final List<View> dockCards = new ArrayList<>();
+    private final List<View> contCards = new ArrayList<>();
     private final List<View> gridCards = new ArrayList<>();
     private final List<View> pills = new ArrayList<>();
 
     private HomeScrollView scroll;
     private LinearLayout content, dockRow;
     private FrameLayout hero;
-    private LinearLayout grid;
+    private LinearLayout grid, contSection, contRow;
     private View glow;
     private ImageView wallBack, wallFront;
     private View gridShade;
@@ -121,6 +135,7 @@ public class MainActivity extends Activity {
         liveTvPkg = getString(R.string.live_tv_package);
         inputPickerPkg = getString(R.string.input_picker_package);
         cols = getResources().getInteger(R.integer.columns);
+        glowStrength = getResources().getInteger(R.integer.glow_strength) / 100f;
         getWindow().getDecorView().setSystemUiVisibility(
                 View.SYSTEM_UI_FLAG_FULLSCREEN | View.SYSTEM_UI_FLAG_HIDE_NAVIGATION
                         | View.SYSTEM_UI_FLAG_IMMERSIVE_STICKY | View.SYSTEM_UI_FLAG_LAYOUT_STABLE);
@@ -151,6 +166,7 @@ public class MainActivity extends Activity {
         // Catch installs/removals that happened while another app was in front.
         if (getPackageManager().getChangedPackages(packageSeq) != null) buildApps();
         if (firstShow) { firstShow = false; playEntrance(); }
+        loadWatchNext();
         // New photo on return if the current one has been up for the full interval.
         if (wallIndex < 0 || SystemClock.elapsedRealtime() - wallChangedAt >= WALLPAPER_INTERVAL_MS) nextWallpaper();
         else scheduleWallpaper(WALLPAPER_INTERVAL_MS - (SystemClock.elapsedRealtime() - wallChangedAt));
@@ -258,6 +274,22 @@ public class MainActivity extends Activity {
         dockRow.setBackground(band);
         bottom.addView(dockRow, new LinearLayout.LayoutParams(-1, -2));
 
+        // Continue watching, between the dock and the grid; hidden until an app has something to resume.
+        contSection = new LinearLayout(this);
+        contSection.setOrientation(LinearLayout.VERTICAL);
+        contSection.setClipChildren(false);
+        contSection.setClipToPadding(false);
+        contSection.setVisibility(View.GONE);
+        TextView contLabel = text(11, "sans-serif-medium", 0x99FFFFFF);
+        contLabel.setText("CONTINUE WATCHING");
+        contLabel.setLetterSpacing(0.22f);
+        contSection.addView(contLabel, llp(-2, -2, 0, 0, 0, dp(18)));
+        contRow = new LinearLayout(this);
+        contRow.setClipChildren(false);
+        contRow.setClipToPadding(false);
+        contSection.addView(contRow, new LinearLayout.LayoutParams(-1, -2));
+        content.addView(contSection, llp(-1, -2, dp(68), dp(8), dp(68), dp(30)));
+
         appsLabel = text(11, "sans-serif-medium", 0x99FFFFFF);
         appsLabel.setText("ALL APPS");
         appsLabel.setLetterSpacing(0.22f);
@@ -361,6 +393,7 @@ public class MainActivity extends Activity {
             a.color = sampleColor(a.pkg, a.art);
             byPkg.put(a.pkg, a);
         }
+        allApps = new HashMap<>(byPkg);
 
         List<App> dock = new ArrayList<>();
         for (String p : dockApps) if (byPkg.containsKey(p)) dock.add(byPkg.remove(p));
@@ -399,7 +432,7 @@ public class MainActivity extends Activity {
             row.addView(new View(this), p);
         }
         appsLabel.setVisibility(rest.isEmpty() ? View.GONE : View.VISIBLE);
-        wireFocus();
+        renderContinue(); // also rewires focus
 
         if (!dock.isEmpty()) { title.setText(dock.get(0).label); setGlow(dock.get(0).color); }
         View last = lastFocusedId == View.NO_ID ? null : findViewById(lastFocusedId);
@@ -414,17 +447,8 @@ public class MainActivity extends Activity {
         box.setClipChildren(false);
         box.setClipToPadding(false);
 
-        FrameLayout card = new AspectFrame(this);
-        card.setId(View.generateViewId());
-        card.setFocusable(true);
-        card.setClickable(true);
+        FrameLayout card = newCard();
         card.setTag(app);
-        card.setClipToOutline(true);
-        card.setOutlineProvider(new ViewOutlineProvider() {
-            @Override public void getOutline(View v, Outline o) {
-                o.setRoundRect(0, 0, v.getWidth(), v.getHeight(), dp(10));
-            }
-        });
         GradientDrawable bg = new GradientDrawable();
         bg.setColor(app.isBanner ? 0xFF1C1C1E : darken(app.color, 0.45f));
         card.setBackground(bg);
@@ -439,17 +463,7 @@ public class MainActivity extends Activity {
             card.addView(img, new FrameLayout.LayoutParams(-1, -1));
             img.setPadding(dp(22), dp(14), dp(22), dp(14));
         }
-
-        // Focus ring and sheen, drawn above the art.
-        GradientDrawable ring = new GradientDrawable();
-        ring.setCornerRadius(dp(10));
-        ring.setStroke(dp(2), 0xE6FFFFFF);
-        ring.setOrientation(GradientDrawable.Orientation.TL_BR);
-        ring.setColors(new int[]{0x26FFFFFF, 0x00FFFFFF, 0x00FFFFFF});
-        View shine = new View(this);
-        shine.setBackground(ring);
-        shine.setAlpha(0f);
-        card.addView(shine, new FrameLayout.LayoutParams(-1, -1));
+        View shine = addShine(card);
 
         box.addView(card, new LinearLayout.LayoutParams(-1, -2));
 
@@ -490,9 +504,196 @@ public class MainActivity extends Activity {
         return box;
     }
 
+    /** A focusable 16:9 card with rounded corners. */
+    private FrameLayout newCard() {
+        FrameLayout card = new AspectFrame(this);
+        card.setId(View.generateViewId());
+        card.setFocusable(true);
+        card.setClickable(true);
+        card.setClipToOutline(true);
+        card.setOutlineProvider(new ViewOutlineProvider() {
+            @Override public void getOutline(View v, Outline o) {
+                o.setRoundRect(0, 0, v.getWidth(), v.getHeight(), dp(10));
+            }
+        });
+        return card;
+    }
+
+    /** Focus ring and sheen, drawn above the art; shown while the card is focused. */
+    private View addShine(FrameLayout card) {
+        GradientDrawable ring = new GradientDrawable();
+        ring.setCornerRadius(dp(10));
+        ring.setStroke(dp(2), 0xE6FFFFFF);
+        ring.setOrientation(GradientDrawable.Orientation.TL_BR);
+        ring.setColors(new int[]{0x26FFFFFF, 0x00FFFFFF, 0x00FFFFFF});
+        View shine = new View(this);
+        shine.setBackground(ring);
+        shine.setAlpha(0f);
+        card.addView(shine, new FrameLayout.LayoutParams(-1, -1));
+        return shine;
+    }
+
+    // ---------------------------------------------------------------- continue watching
+
+    /**
+     * Continue-watching entries apps publish to the TV provider, newest first. Reading other apps' entries needs
+     * READ_TV_LISTINGS, granted at install; without it the query comes back empty and the row stays hidden.
+     */
+    private void loadWatchNext() {
+        new Thread(() -> {
+            List<WatchNext> list = new ArrayList<>();
+            String[] proj = {TvContract.WatchNextPrograms.COLUMN_PACKAGE_NAME,
+                    TvContract.WatchNextPrograms.COLUMN_TITLE,
+                    TvContract.WatchNextPrograms.COLUMN_EPISODE_TITLE,
+                    TvContract.WatchNextPrograms.COLUMN_SEASON_DISPLAY_NUMBER,
+                    TvContract.WatchNextPrograms.COLUMN_EPISODE_DISPLAY_NUMBER,
+                    TvContract.WatchNextPrograms.COLUMN_INTENT_URI,
+                    TvContract.WatchNextPrograms.COLUMN_LAST_PLAYBACK_POSITION_MILLIS,
+                    TvContract.WatchNextPrograms.COLUMN_DURATION_MILLIS,
+                    TvContract.WatchNextPrograms.COLUMN_WATCH_NEXT_TYPE,
+                    TvContract.WatchNextPrograms.COLUMN_BROWSABLE,
+                    TvContract.WatchNextPrograms.COLUMN_LAST_ENGAGEMENT_TIME_UTC_MILLIS};
+            // The provider rejects a selection or sort from apps without system access, so both happen here.
+            Map<WatchNext, Long> engaged = new HashMap<>();
+            try (Cursor c = getContentResolver().query(TvContract.WatchNextPrograms.CONTENT_URI, proj, null, null, null)) {
+                while (c != null && c.moveToNext()) {
+                    // Only things to resume or the next episode; apps also post "new" items, mostly promos.
+                    int type = c.getInt(8);
+                    if (type != TvContract.WatchNextPrograms.WATCH_NEXT_TYPE_CONTINUE
+                            && type != TvContract.WatchNextPrograms.WATCH_NEXT_TYPE_NEXT) continue;
+                    if (!c.isNull(9) && c.getInt(9) == 0) continue; // removed by the user
+                    WatchNext w = new WatchNext();
+                    engaged.put(w, c.getLong(10));
+                    w.pkg = c.getString(0);
+                    w.title = c.getString(1);
+                    w.episodeTitle = c.getString(2);
+                    w.season = c.getString(3);
+                    w.episode = c.getString(4);
+                    w.intentUri = c.getString(5);
+                    long pos = c.getLong(6), dur = c.getLong(7);
+                    w.progress = dur > 0 ? Math.min(1f, (float) pos / dur) : 0f;
+                    if (w.pkg != null && w.title != null) list.add(w);
+                }
+            } catch (RuntimeException e) { // no permission or no TV provider: no row
+                android.util.Log.w("tvhome", "watch next query failed", e);
+            }
+            Collections.sort(list, (x, y) -> Long.compare(engaged.get(y), engaged.get(x))); // newest first
+            android.util.Log.i("tvhome", "watch next entries: " + list.size());
+            runOnUiThread(() -> {
+                if (isDestroyed()) return;
+                watchNext = list;
+                renderContinue();
+            });
+        }).start();
+    }
+
+    /** One row of continue-watching cards, as wide as a grid row; hidden when there's nothing to resume. */
+    private void renderContinue() {
+        boolean hadFocus = contCards.contains(getCurrentFocus());
+        contRow.removeAllViews();
+        contCards.clear();
+        int n = 0;
+        for (WatchNext w : watchNext) {
+            App app = allApps.get(w.pkg);
+            if (app == null) continue; // hidden or not launchable
+            LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, -2, 1f);
+            p.setMargins(n == 0 ? 0 : dp(10), 0, n == cols - 1 ? 0 : dp(10), 0);
+            contRow.addView(watchNextTile(w, app), p);
+            if (++n == cols) break;
+        }
+        // Pad the row so cards keep a grid tile's width.
+        for (int i = n; i != 0 && i < cols; i++) {
+            LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, 1, 1f);
+            p.setMargins(dp(10), 0, i == cols - 1 ? 0 : dp(10), 0);
+            contRow.addView(new View(this), p);
+        }
+        contSection.setVisibility(n == 0 ? View.GONE : View.VISIBLE);
+        wireFocus();
+        if (hadFocus) (n > 0 ? contCards.get(0) : dockCards.isEmpty() ? pills.get(0) : dockCards.get(0)).requestFocus();
+    }
+
+    /** The app's banner, dimmed, with the show, the episode (or app name) and how far through it you are. */
+    private View watchNextTile(WatchNext w, App app) {
+        FrameLayout card = newCard();
+        GradientDrawable bg = new GradientDrawable();
+        bg.setColor(darken(app.color, 0.35f));
+        card.setBackground(bg);
+
+        ImageView img = new ImageView(this);
+        Drawable.ConstantState art = app.art.getConstantState();
+        img.setImageDrawable(art != null ? art.newDrawable(getResources()) : app.art);
+        img.setScaleType(app.isBanner ? ImageView.ScaleType.CENTER_CROP : ImageView.ScaleType.FIT_CENTER);
+        img.setAlpha(0.4f);
+        card.addView(img, new FrameLayout.LayoutParams(-1, -1));
+        View scrim = new View(this);
+        scrim.setBackground(new GradientDrawable(GradientDrawable.Orientation.BOTTOM_TOP,
+                new int[]{0xE6000000, 0x00000000}));
+        card.addView(scrim, new FrameLayout.LayoutParams(-1, -1));
+
+        LinearLayout info = new LinearLayout(this);
+        info.setOrientation(LinearLayout.VERTICAL);
+        info.setPadding(dp(12), 0, dp(12), dp(10));
+        TextView name = text(13, "sans-serif-medium", Color.WHITE);
+        name.setText(w.title);
+        name.setMaxLines(2);
+        name.setEllipsize(TextUtils.TruncateAt.END);
+        info.addView(name);
+        TextView sub = text(10, "sans-serif", 0xB3FFFFFF);
+        String ep = w.season != null && w.episode != null ? "S" + w.season + " E" + w.episode : null;
+        if (ep != null && w.episodeTitle != null) ep += " · " + w.episodeTitle;
+        sub.setText(ep != null ? ep : app.label);
+        sub.setSingleLine(true);
+        sub.setEllipsize(TextUtils.TruncateAt.END);
+        info.addView(sub, llp(-1, -2, 0, dp(2), 0, 0));
+        if (w.progress > 0) {
+            FrameLayout track = new FrameLayout(this);
+            track.setBackgroundColor(0x40FFFFFF);
+            View fill = new View(this);
+            ClipDrawable bar = new ClipDrawable(new ColorDrawable(0xE6FFFFFF), Gravity.START, ClipDrawable.HORIZONTAL);
+            bar.setLevel(Math.round(w.progress * 10000));
+            fill.setBackground(bar);
+            track.addView(fill, new FrameLayout.LayoutParams(-1, -1));
+            info.addView(track, llp(-1, dp(3), 0, dp(8), 0, 0));
+        }
+        card.addView(info, new FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM));
+        View shine = addShine(card);
+
+        card.setOnClickListener(v -> openWatchNext(w));
+        card.setOnFocusChangeListener((v, has) -> {
+            v.animate().scaleX(has ? 1.1f : 1f).scaleY(has ? 1.1f : 1f).translationZ(has ? dp(14) : 0)
+                    .setInterpolator(has ? new OvershootInterpolator(1.8f) : new DecelerateInterpolator())
+                    .setDuration(has ? 320 : 200).start();
+            shine.animate().alpha(has ? 1f : 0f).setDuration(160).start();
+            if (!has) return;
+            lastFocusedId = v.getId();
+            fadeGlow(0.35f);
+            title.animate().alpha(0f).setDuration(200).start();
+            scrollToRow(v);
+        });
+        contCards.add(card);
+        return card;
+    }
+
+    /** Resume in the app that published the entry; fall back to just opening that app. */
+    private void openWatchNext(WatchNext w) {
+        Intent i = null;
+        try {
+            if (w.intentUri != null) i = Intent.parseUri(w.intentUri, Intent.URI_INTENT_SCHEME);
+        } catch (java.net.URISyntaxException ignored) { }
+        if (i != null) {
+            // The intent comes from another app: only let it open that app, and never pass on URI grants.
+            i.setSelector(null);
+            i.setPackage(w.pkg);
+            i.removeFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                    | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION | Intent.FLAG_GRANT_PREFIX_URI_PERMISSION);
+            if (launch(i)) return;
+        }
+        openPackage(w.pkg);
+    }
+
     /** Explicit D-pad targets: one row per press, ends of rows and of the top bar don't wrap. */
     private void wireFocus() {
-        int d = dockCards.size(), g = gridCards.size();
+        int d = dockCards.size(), w = contCards.size(), g = gridCards.size();
         for (int i = 0; i < pills.size(); i++) {
             View p = pills.get(i);
             p.setNextFocusLeftId(i == 0 ? p.getId() : pills.get(i - 1).getId());
@@ -506,15 +707,23 @@ public class MainActivity extends Activity {
             c.setNextFocusUpId(topId);
             c.setNextFocusLeftId(i == 0 ? c.getId() : dockCards.get(i - 1).getId());
             c.setNextFocusRightId(i == d - 1 ? c.getId() : dockCards.get(i + 1).getId());
+            c.setNextFocusDownId(w > 0 ? contCards.get(Math.min(i, w - 1)).getId()
+                    : g > 0 ? gridCards.get(Math.min(i, g - 1)).getId() : c.getId());
+        }
+        for (int i = 0; i < w; i++) {
+            View c = contCards.get(i);
+            c.setNextFocusUpId(d > 0 ? dockCards.get(Math.min(i, d - 1)).getId() : topId);
+            c.setNextFocusLeftId(i == 0 ? c.getId() : contCards.get(i - 1).getId());
+            c.setNextFocusRightId(i == w - 1 ? c.getId() : contCards.get(i + 1).getId());
             c.setNextFocusDownId(g > 0 ? gridCards.get(Math.min(i, g - 1)).getId() : c.getId());
         }
         int lastRow = (g - 1) / cols;
         for (int j = 0; j < g; j++) {
             View c = gridCards.get(j);
             int r = j / cols, col = j % cols;
-            c.setNextFocusUpId(r == 0
-                    ? (d > 0 ? dockCards.get(Math.min(col, d - 1)).getId() : topId)
-                    : gridCards.get(j - cols).getId());
+            c.setNextFocusUpId(r > 0 ? gridCards.get(j - cols).getId()
+                    : w > 0 ? contCards.get(Math.min(col, w - 1)).getId()
+                    : d > 0 ? dockCards.get(Math.min(col, d - 1)).getId() : topId);
             c.setNextFocusDownId(j + cols < g ? gridCards.get(j + cols).getId()
                     : r < lastRow ? gridCards.get(g - 1).getId() : c.getId());
             c.setNextFocusLeftId(col == 0 ? c.getId() : gridCards.get(j - 1).getId());
@@ -524,13 +733,16 @@ public class MainActivity extends Activity {
 
     private void scrollToRow(View tileBox) {
         View row = (View) tileBox.getParent();
-        int y = grid.getTop() + row.getTop();
         int screenH = getResources().getDisplayMetrics().heightPixels;
-        // First grid row: slide the dock band up to the top edge; later rows centre on screen.
+        // The row right under the dock (continue watching, or the first grid row without it) slides the dock
+        // band up to the top edge; the first grid row under continue watching puts that row at the top;
+        // later rows centre on screen.
         View band = (View) dockRow.getParent();
-        int target = grid.indexOfChild(row) == 0
-                ? hero.getTop() + band.getTop() + dockRow.getTop() - dp(22)
-                : y - (int) (screenH * 0.42f);
+        int bandTop = hero.getTop() + band.getTop() + dockRow.getTop() - dp(22);
+        boolean hasCont = contSection.getVisibility() == View.VISIBLE;
+        int target = row == contRow ? bandTop
+                : grid.indexOfChild(row) != 0 ? grid.getTop() + row.getTop() - (int) (screenH * 0.42f)
+                : hasCont ? contSection.getTop() - dp(22) : bandTop;
         int max = Math.max(0, content.getHeight() - scroll.getHeight());
         scroll.smoothScrollTo(0, Math.max(0, Math.min(target, max)));
     }
@@ -648,7 +860,8 @@ public class MainActivity extends Activity {
         g.setGradientType(GradientDrawable.RADIAL_GRADIENT);
         g.setGradientCenter(0.5f, 0.78f);
         g.setGradientRadius(getResources().getDisplayMetrics().widthPixels * 0.62f);
-        g.setColors(new int[]{withAlpha(color, 0.5f), withAlpha(color, 0.14f), Color.TRANSPARENT});
+        g.setColors(new int[]{withAlpha(color, 0.5f * glowStrength), withAlpha(color, 0.14f * glowStrength),
+                Color.TRANSPARENT});
         glow.setBackground(g);
     }
 

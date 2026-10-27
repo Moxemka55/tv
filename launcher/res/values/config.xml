@@ -32,4 +32,7 @@
 
     <!-- Tiles per row in the grid. -->
     <integer name="columns">5</integer>
+
+    <!-- How strongly the focused dock app's colour tints the background, in percent (100 = original). -->
+    <integer name="glow_strength">40</integer>
 </resources>

@@ -52,6 +52,8 @@ tv 'rm -f /data/local/tmp/tvhome.apk'
 tv "pm path $PKG"
 # The Wi-Fi name in the top bar needs location on Android 11+; the launcher works without it.
 tv "pm grant $PKG android.permission.ACCESS_FINE_LOCATION" || echo "(no location grant; the Wi-Fi pill will just say Wi-Fi)"
+# Continue watching reads other apps' Watch Next entries; without this the row just stays hidden.
+tv "pm grant $PKG android.permission.READ_TV_LISTINGS" || echo "(no TV listings grant; no continue-watching row)"
 
 # 2. Smoke test: open it directly and make sure it stays up.
 tv 'logcat -b crash -c' || true

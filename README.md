@@ -62,7 +62,11 @@ Undo everything with `tools/restore.sh <the same list>`.
 - Clock, greeting and date top-left. Frosted pills top-right for **Inputs** (HDMI/AV/Live TV
   dropdown; the remote's Menu key opens it too), **Wi-Fi** (shows the network name) and **Settings**.
 - A dock of your favourite apps. The focused app's name appears above it over a glow coloured from
-  its banner. Press Down for every other app in a grid.
+  its banner (`glow_strength` in `config.xml`). Press Down for **Continue watching**, then every other
+  app in a grid.
+- **Continue watching** shows what apps like Netflix and HBO Max report as in progress or up next,
+  with a progress bar; select one to resume. It uses each app's banner rather than posters, so the
+  launcher stays offline. Apps that don't publish to Android TV's Watch Next don't appear.
 - 12 nature photos crossfade every 10 minutes, with a scrim so text stays readable. Swap them in
   `launcher/assets/wallpapers/` (1920×1080 JPEGs, credits in `launcher/WALLPAPER-CREDITS.md`).
 - Deterministic D-pad focus, remembers the last tile, picks up newly installed apps on return.
